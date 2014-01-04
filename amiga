@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+
+import argparse
+import configparser
+import os
+import tempfile
+import subprocess
+import sys
+#import pdb
+
+
+def nicequit(msg='', errno=0):
+    """clean up and print errors to stderr"""
+    if errno > 0:
+        print(msg, file=sys.stderr)
+    else:
+        print(msg)
+    quit(code=errno)
+
+
+def get_basedir():
+    '''return fs-uae base dir'''
+    if os.path.isdir(str(os.environ.get('FS_UAE_BASE_DIR'))):
+        return os.environ['FS_UAE_BASE_DIR']
+    basedirconf = os.path.expanduser('~/.config/fs-uae/base-dir')
+    if os.path.isfile(basedirconf):
+        with open(basedirconf) as f:
+            path = f.readline().strip()
+        if os.path.isdir(path):
+            return path
+    basedirconf = os.path.expanduser('~/.config/fs-uae/fs-uae.conf')
+    if os.path.isfile(basedirconf):
+        with open(basedirconf) as f:
+            for line in f:
+                if line.split('=')[0].strip() == 'base_dir':
+                    path = line.split('=')[1].strip()
+                    if os.path.isdir(path):
+                        return path
+    try:
+        docdir = subprocess.check_output(
+            ['xdg-user-dir', 'DOCUMENTS']).decode().strip(os.linesep)
+        path = os.path.join(docdir, 'FS-UAE')
+        if os.path.isdir(path):
+            return path
+    except:
+        path = os.path.join(os.path.expanduser('~/FS-UAE'))
+        if os.path.isdir(path):
+            return path
+    return None
+
+
+def getrealfile(name, ndir, fext):
+    """return a real filename in current dir or in specific fs-uae dir"""
+    if os.sep in name and os.path.isfile(name):
+        return name
+    elif not os.sep in name and os.path.isfile(os.path.join(ndir, name)):
+        return os.path.join(ndir, name)
+    elif not os.sep in name and os.path.isfile(os.path.join(ndir, name + fext)):
+        return os.path.join(ndir, name + fext)
+
+
+def useopt(key, value):
+    config['fs-uae'][key] = value
+
+
+def geteditor():
+    """set a text editor"""
+    #TODO: use vim/nano... as fallback
+    editor = os.getenv('EDITOR')
+    if not editor:
+        print('Environment variable $EDITOR is not defined.')
+        nicequit('Please use \"export EDITOR=youreditor\" to edit the config.', 1)
+    else:
+        return editor
+
+
+def handlehdd(hdarg):
+    """return an argument for HDx:"""
+    if os.path.isdir(hdarg):
+        return hdarg
+    elif os.path.isfile(hdarg):
+        if hdarg.lower().endswith('.lha'):
+            global lhatmpdir
+            lhatmpdir = tempfile.TemporaryDirectory(prefix='LHA')
+            lhabasename = os.path.basename(hdarg)
+            lhadir = os.path.join(lhatmpdir.name, lhabasename.lower().rsplit('.lha')[0])
+            print('Extracting LHA archive to ' + lhadir)
+            print('Don\'t put any files in here! They will be deleted.')
+            os.mkdir(lhadir)
+            try:
+                subprocess.check_call(['lha', 'xw=' + lhadir, hdarg])
+                return lhadir
+            except OSError:
+                nicequit('Error: lha binary not found in your $PATH', 1)
+            except subprocess.CalledProcessError as e:
+                nicequit('Error extracting ' + hdarg, e.returncode)
+        else:
+            return hdarg
+    else:
+        nicequit('Not a valid file or directory: ' + hdarg, 1)
+
+
+def sorted_nicely(l):
+    """ Sort the given iterable in the way that humans expect."""
+    # http://www.codinghorror.com/blog/2007/12/sorting-for-humans-natural-sort-order.html
+    convert = lambda text: int(text) if text.isdigit() else text
+    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+    return sorted(l, key=alphanum_key)
+
+
+def assignfromfloppylist(flist):
+    try:
+        useopt('floppy_drive_0', flist[0])
+        print('Using image for DF0: {0}'.format(flist[0]))
+        useopt('floppy_drive_1', flist[1])
+        print('Using image for DF1: {0}'.format(flist[1]))
+        useopt('floppy_drive_2', flist[2])
+        print('Using image for DF2: {0}'.format(flist[2]))
+        useopt('floppy_drive_3', flist[3])
+        print('Using image for DF3: {0}'.format(flist[3]))
+    except IndexError:
+        pass
+
+
+def dohash(hfile):
+    with open(hfile, 'rb') as f:
+        data = f.read()
+        return sha1(data).hexdigest()
+
+
+# predefined stuff
+fexts = ('.adf', '.dms', '.adz', '.ipf')
+hexts = ('.hdf', '.zip', '.lha')
+floppylist = []
+
+# get the fs-uae-base dir, setup others
+basedir = get_basedir()
+if not basedir:
+    nicequit('Could not find fs-uae base directory.', 1)
+confdir = os.path.join(basedir, 'Configurations')
+#datadir = os.path.join(basedir, 'Data')
+
+# set a config
+global config
+config = configparser.ConfigParser()
+config['fs-uae'] = {}
+fsuae = config['fs-uae']
+
+# parse command line arguments
+parser = argparse.ArgumentParser(description="FS-UAE command line launcher and config utility")
+configstuff = parser.add_argument_group('Config related options')
+configstuff.add_argument("-Q", "--db", help="query fs-uae game database for config", metavar='IMAGE', type=argparse.FileType('r'))
+configstuff.add_argument("-R", "--readconf", help="read from (a) config file(s) ", nargs='+', metavar=('config1', 'config2'))
+configstuff.add_argument("-W", "--writeconf", help="write a config file", metavar='config')
+configstuff.add_argument("-S", "--showconf", help="show a saved config file", metavar='config')
+configstuff.add_argument("-E", "--editconf", help="edit a saved config file", metavar='config')
+configstuff.add_argument("-D", "--delconf", help="delete a saved config file", metavar='config')
+configstuff.add_argument("-M", "--modifyconf", help="edit config before executing fs-uae", action="store_true")
+configstuff.add_argument("-L", "--listconf", help="list config files in config dir", action="store_true")
+configstuff.add_argument("-X", "--noexec", help="don\'t execute fs-uae", action="store_true")
+drive = parser.add_argument_group('Disk related options')
+drive.add_argument("somedisk", help="use any image/directory for any drive (will overwrite other arguments)", nargs='*', metavar='DISK')
+drive.add_argument("-0", "--df0", help="use floppy image for DF0", type=argparse.FileType('r'))
+drive.add_argument("-1", "--df1", help="use floppy image for DF1", type=argparse.FileType('r'))
+drive.add_argument("-2", "--df2", help="use floppy image for DF2", type=argparse.FileType('r'))
+drive.add_argument("-3", "--df3", help="use floppy image for DF3", type=argparse.FileType('r'))
+drive.add_argument("-4", "--hd0", help="use HDF/RDB/ZIP/LHA-file or directory for HD0")
+drive.add_argument("-5", "--hd1", help="use HDF/RDB/ZIP/LHA-file or directory for HD1")
+drive.add_argument("-6", "--hd2", help="use HDF/RDB/ZIP/LHA-file or directory for HD2")
+drive.add_argument("-7", "--hd3", help="use HDF/RDB/ZIP/LHA-file or directory for HD3")
+drive.add_argument("-f", "--floppy", help="set additional floppy image(s)", nargs='+', type=argparse.FileType('r'))
+drive.add_argument("-z", "--zip", help="use floppy images in archive for disk drives", nargs='+', type=argparse.FileType('r'))
+amodel = parser.add_mutually_exclusive_group()
+amodel.add_argument("-a", "--a500", help="emulate an Amiga 500 (default)", action="store_true")
+amodel.add_argument("-b", "--a1200", help="emulate an Amiga 1200", action="store_true")
+amodel.add_argument("-c", "--a4000", help="emulate an Amiga 4000", action="store_true")
+parser.add_argument("-t", "--turbofloppy", help="faster floppy, can be set twice", action='count')
+parser.add_argument("-n", "--onefloppy", help="use only one floppy drive", action="store_true")
+parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice", action='count')
+parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
+parser.add_argument("-g", "--scale", help="use fixed 2x/3x or 4x scaling", action="count")
+parser.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
+parser.add_argument("-v", "--novsync", help="disable vsync", action="store_true")
+parser.add_argument("-r", "--lowaccuracy", help="lower the emulation accuracy, can be set twice", action='count')
+parser.add_argument("-q", "--quietfloppy", help="quiet floppy drives", action="store_true")
+parser.add_argument("-k", "--keepaspect", help="keep aspect ratio", action="store_true")
+parser.add_argument("-j", "--jit", help="try to use the JIT compiler for emulation", action="store_true")
+parser.add_argument("-s", "--shader", help="use a pixel shader", nargs='?', const=True)
+parser.add_argument("-o", "--opts", help="set custom fs-uae options (KEY=VALUE)", nargs='+')
+parser.add_argument("-u", "--uaeopts", help="set custom UNSUPPORTED uae_* options (KEY=VALUE)", nargs='+')
+
+args = parser.parse_args()
+
+
+# list configs
+if args.listconf:
+    for conf in os.listdir(path=confdir):
+        print(conf.rsplit('.fs-uae')[0], end='; ')
+    nicequit()
+
+# show config
+if args.showconf:
+    showconf = getrealfile(args.showconf, confdir, '.fs-uae')
+    if showconf and showconf.endswith('.fs-uae'):
+        try:
+            sconf = open(showconf)
+        except:
+            nicequit('Could not open ' + showconf, 1)
+        for line in sconf:
+            print(line, end='')
+        sconf.close()
+        nicequit()
+    else:
+        nicequit(args.showconf + ' is possibly not a fs-uae config', 1)
+
+# edit config
+if args.editconf:
+    editor = geteditor()
+    editconf = getrealfile(args.editconf, confdir, '.fs-uae')
+    if editconf and editconf.endswith('.fs-uae'):
+        subprocess.call([editor, editconf])
+        nicequit()
+    else:
+        nicequit('Could not edit ' + args.editconf, 1)
+
+# delete config
+if args.delconf:
+    delconf = getrealfile(args.delconf, confdir, '.fs-uae')
+    if delconf:
+        qdel = input('Do you really want to delete ' + str(delconf) + ' [y/N]? >>  ')
+        if str(qdel) == 'y':
+            try:
+                os.remove(delconf)
+                nicequit(delconf + ' has been deleted.', 0)
+            except OSError:
+                nicequit('Could not delete ' + delconf, 1)
+        else:
+            nicequit(delconf + ' has NOT been deleted.', 0)
+    else:
+        nicequit('Config not found: ' + args.delconf, 1)
+
+# read from config file(s)
+if args.readconf:
+    for option in args.readconf:
+        readconf = getrealfile(option, confdir, '.fs-uae')
+        if readconf and readconf.endswith('.fs-uae'):
+            try:
+                config.read_file(open(readconf))
+            except:
+                nicequit('Could not read configfile: ' + option, 1)
+        else:
+            nicequit('Config not found: ' + option, 1)
+
+
+# Amiga model specific setup
+if args.a500:
+    useopt('amiga_model', 'A500')
+elif args.a1200:
+    useopt('amiga_model', 'A1200')
+elif args.a4000:
+    useopt('amiga_model', 'A4000/040')
+    useopt('uaegfx_card', '1')
+    useopt('bsdsocket_library', '1')
+
+# floppy speed setup
+if args.turbofloppy == 1:
+    useopt('floppy_drive_speed', '200')
+elif args.turbofloppy == 2:
+    useopt('floppy_drive_speed', '800')
+
+# writebale floppy
+if args.writeable:
+    useopt('writable_floppy_images', '1')
+
+# lowres an line-doubling
+if args.lowres == 1:
+    useopt('line_doubling', '0')
+    useopt('low_resolution', '0')
+elif args.lowres == 2:
+    useopt('line_doubling', '0')
+    useopt('low_resolution', '1')
+
+# fixed scaling
+if args.scale:
+    if args.scale == 1:
+        scale = "2"
+    elif args.scale == 2:
+        scale = "3"
+    elif args.scale == 3:
+        scale = "4"
+    useopt('scale_x', scale)
+    useopt('scale_y', scale)
+
+# setup more memory
+if args.xmem:
+    amodel = fsuae.get('amiga_model', 'A500')
+    if amodel == 'A500':
+        useopt('chip_memory', '1024')
+        useopt('fast_memory', '1024')
+        useopt('slow_memory', '0')
+    elif amodel == 'A1200':
+        useopt('fast_memory', '8192')
+    elif amodel == 'A4000/040':
+        useopt('chip_memory', '2048')
+        useopt('zorro_iii_memory', '131072')
+    else:
+        print('WARNING: Extra memory not activated.')
+
+# disable vsync
+if args.novsync:
+    useopt('video_sync', 'off')
+
+# set accuracy
+if args.lowaccuracy == 1:
+    useopt('accuracy', '0')
+elif args.lowaccuracy == 2:
+    useopt('accuracy', '-1')
+
+#quiet floppy
+if args.quietfloppy:
+    useopt('floppy_drive_volume', '0')
+
+# aspect ratio
+if args.keepaspect:
+    useopt('keep-aspect', '1')
+
+# use only one fdd
+if args.onefloppy:
+    useopt('floppy_drive_count', '1')
+
+# try to enable jit
+if args.jit:
+    if fsuae.get('amiga_model', 'A500') == 'A1200':
+        print('WARNING: setting real 68020 cpu for A1200')
+        useopt('amiga_model', 'A1200/020')
+    if fsuae.get('accuracy', '1') == '1':
+        print('WARNING: disabling cycle exact emulation for JIT.')
+        useopt('accuracy', '0')
+    useopt('uae_cachesize', '8192')
+    useopt('uae_comp_trustbyte', 'direct')
+    useopt('uae_comp_trustword', 'direct')
+    useopt('uae_comp_trustnaddr', 'direct')
+    if fsuae.get('amiga_model', 'A500') == 'A1200/020':
+        useopt('uae_comp_trustlong', 'direct')
+    else:
+        useopt('uae_comp_trustlong', 'indirectks')
+
+# pixel shader stuff
+# FIXME: find out shader dir using the location of fs-uae binary: shutil.which()
+if args.shader:
+    if os.path.isdir('/usr/share/fs-uae/shaders'):
+        shaderdir = '/usr/share/fs-uae/shaders'
+    elif os.path.isdir('/usr/local/share/fs-uae/shaders'):
+        shaderdir = '/usr/local/share/fs-uae/shaders'
+    else:
+        nicequit('Pixel shader directory not found.', 1)
+    if args.shader is True:
+        shaderlist = os.listdir(shaderdir)
+        shaderlist.sort()
+        for dshader in enumerate(shaderlist):
+            print(str(dshader[0]) + ' - ' + dshader[1].rsplit('.shader')[0])
+        shaderno = 'unset'
+        while not shaderno.isdigit() or int(shaderno) < 0 or int(shaderno) > len(shaderlist):
+            # this looks weird *lol*
+            shaderno = input('Please select a shader: >> ')
+        shaderfile = os.path.join(shaderdir, shaderlist[int(shaderno)])
+    else:
+        shaderfile = getrealfile(args.shader, shaderdir, '.shader')
+        if not shaderfile:
+            nicequit('shader not found: ' + args.shader, 1)
+    useopt('shader', shaderfile)
+
+# assign disk images to floppy_drive_x and
+# also put them in a floppy list
+if args.df0:
+    useopt('floppy_drive_0', args.df0.name)
+    floppylist.append(args.df0.name)
+if args.df1:
+    useopt('floppy_drive_1', args.df1.name)
+    floppylist.append(args.df1.name)
+if args.df2:
+    useopt('floppy_drive_2', args.df2.name)
+    floppylist.append(args.df2.name)
+if args.df3:
+    useopt('floppy_drive_3', args.df3.name)
+    floppylist.append(args.df3.name)
+
+# hdd config
+if args.hd0:
+    useopt('hard_drive_0', handlehdd(args.hd0))
+if args.hd1:
+    useopt('hard_drive_1', handlehdd(args.hd1))
+if args.hd2:
+    useopt('hard_drive_2', handlehdd(args.hd2))
+if args.hd3:
+    useopt('hard_drive_3', handlehdd(args.hd3))
+
+
+# exract floppy images from a given .zip to a temp dir and use it
+if args.zip:
+    import zipfile
+    import re
+    tmpdir = tempfile.TemporaryDirectory(prefix='ZIP')
+    zipfilelist = []
+    for cmdzip in args.zip:
+        try:
+            z = zipfile.ZipFile(cmdzip.name)
+        except zipfile.BadZipFile:
+            nicequit(cmdzip.name + ' is not a valid ZIP file.', 2)
+        count = 0
+        for f in sorted_nicely(z.namelist()):
+            fname = os.path.join(tmpdir.name, f.split("/")[-1])
+            if count > 19:
+                print('WARNING: Too many floppy images in zip file. You can only use up to 20.')
+                break
+            elif f.lower().endswith(fexts) and z.getinfo(f).file_size <= 2000000:
+                data = z.read(f)
+                floppylist.append(fname)
+                zipfilelist.append(fname)
+                with open(fname, "wb") as mfile:
+                    mfile.write(data)
+                count += 1
+                print('using image: ' + fname)
+            else:
+                print('skipping: ' + fname)
+    assignfromfloppylist(zipfilelist)
+
+# put floppies from command line in the floppy list, if any...
+if args.floppy:
+    for floppies in args.floppy:
+        floppylist.append(floppies.name)
+
+# if no -1 ... -7 is set, sort stuff automagicly
+if args.somedisk:
+    somefloppylist = []
+    somehddlist = []
+    for disk in args.somedisk:
+        if disk.lower().endswith(fexts) and os.path.isfile(disk):
+            somefloppylist.append(disk)
+            floppylist.insert(0, disk)
+        elif (disk.lower().endswith(hexts) and os.path.isfile(disk)) or os.path.isdir(disk):
+                somehddlist.append(handlehdd(disk))
+        else:
+            nicequit(disk + ' can\'t be used for any drive.', 1)
+    assignfromfloppylist(somefloppylist)
+    try:
+        useopt('hard_drive_0', somehddlist[0])
+        if args.somedisk[0].lower().endswith(hexts):
+            useopt('hard_drive_0_priority', '6')
+        useopt('hard_drive_1', somehddlist[1])
+        useopt('hard_drive_2', somehddlist[2])
+        useopt('hard_drive_3', somehddlist[3])
+    except IndexError:
+        pass
+
+if args.db:
+    print('Sorry, but the access to the OAGD has been removed at this place.')
+    print('Please check out <oagd-launch> instead:')
+    print('https://github.com/sonnenscheinchen/oagd-launch')
+    nicequit()
+
+# generate floppy_image_x arguments
+floppyno = 0
+for floppy in floppylist:
+    if floppyno <= 19:
+        useopt('floppy_image_' + str(floppyno), floppy)
+        floppyno += 1
+    else:
+        print('WARNING: Too many floppy images. You can only use up to 20.')
+        break
+
+# set custom fs-uae options
+if args.opts:
+    for option in args.opts:
+        if option.count('=') == 1:
+            useopt(option.split('=')[0], option.split('=')[1])
+        else:
+            nicequit('Bad option: ' + option, 1)
+
+# set custom uae_ options
+if args.uaeopts:
+    for option in args.uaeopts:
+        if option.count('=') == 1:
+            useopt('uae_' + option.split('=')[0], option.split('=')[1])
+        else:
+            nicequit('Bad option: ' + option, 1)
+
+# write temp- or real-config if -W
+if args.writeconf:
+    wconf = confdir + os.sep + args.writeconf + '.fs-uae'
+    with open(wconf, 'wt') as wfsuaeconf:
+        config.write(wfsuaeconf)
+    fsuaeconf = wfsuaeconf
+else:
+    fsuaeconf = tempfile.NamedTemporaryFile(mode='w', buffering=1, encoding='utf-8', suffix='.fs-uae', prefix='CONF', )
+    config.write(fsuaeconf)
+
+# give user the chance to do last minute changes
+if args.modifyconf:
+    editor = geteditor()
+    subprocess.call([editor, fsuaeconf.name])
+
+# print config
+unsupported = False
+print('\nConfiguration:')
+for key in fsuae:
+    if key.startswith('uae_'):
+        unsupported = True
+    print(key + ' = ' + fsuae[key])
+if unsupported:
+    print('\nWARNING: You have unsupported uae_ options in your config.')
+    print('         Proceed at your own risk!\n')
+
+
+# Finally: fs-uae exec if not -X
+if not args.noexec:
+    with open(os.devnull, 'wb') as devnull:
+        proc = subprocess.Popen(['fs-uae', fsuaeconf.name], stdout=devnull)
+        proc.wait()
+        returncode = proc.returncode
+        #returncode = subprocess.call(['fs-uae', fsuaeconf.name], stdout=subprocess.DEVNULL)
+        # Python 3.3 only
+else:
+    returncode = 0
+
+# exit
+if returncode == 0:
+    nicequit()
+else:
+    nicequit('\nFs-uae died with exit status: ' + str(returncode), returncode)
