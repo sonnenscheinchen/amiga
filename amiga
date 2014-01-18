@@ -180,7 +180,7 @@ parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 2x/3x or 4x scaling", action="count")
 parser.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
-parser.add_argument("-v", "--novsync", help="disable vsync", action="store_true")
+parser.add_argument("-v", "--vsync", help="enable vsync", action="store_true")
 parser.add_argument("-r", "--lowaccuracy", help="lower the emulation accuracy, can be set twice", action='count')
 parser.add_argument("-q", "--quietfloppy", help="quiet floppy drives", action="store_true")
 parser.add_argument("-k", "--keepaspect", help="keep aspect ratio", action="store_true")
@@ -306,9 +306,9 @@ if args.xmem:
     else:
         print('WARNING: Extra memory not activated.')
 
-# disable vsync
-if args.novsync:
-    useopt('video_sync', 'off')
+# enable vsync
+if args.vsync:
+    useopt('video_sync', 'auto')
 
 # set accuracy
 if args.lowaccuracy == 1:
