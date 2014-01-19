@@ -174,6 +174,7 @@ drive.add_argument("-f", "--floppy", help="set additional floppy image(s)", narg
 drive.add_argument("-z", "--zip", help="use floppy images in archive for disk drives", nargs='+', type=argparse.FileType('r'))
 state = parser.add_argument_group('Save State related options')
 state.add_argument("--state", help="save states to this custom directory", metavar='PATH')
+state.add_argument("--save", help="save states to fs-uae save states dir with this name", metavar='DIRNAME')
 state.add_argument("--load", help="load save state no.", type=int, choices=range(1, 10), metavar='{1-9}')
 amodel = parser.add_mutually_exclusive_group()
 amodel.add_argument("-a", "--a500", help="emulate an Amiga 500 (default)", action="store_true")
@@ -468,7 +469,7 @@ for floppy in floppylist:
         print('WARNING: Too many floppy images. You can only use up to 20.')
         break
 
-# save state dir (--state)
+# custom save state dir (--state)
 if args.state:
     statedir = os.path.realpath(os.path.expanduser(args.state))
     if not os.path.isdir(statedir):
@@ -478,11 +479,17 @@ if args.state:
             nicequit('Could not create save state directory: ' + statedir, 1)
     useopt('state_dir', statedir)
 
-# load state if -W or --state
+# set dir in fs-uae save state dir (--save)
+if args.save:
+    useopt('state_dir_name', args.save)
+
+# load state if -W or --state or --save
 if args.load:
     stateno = str(args.load)
-    if not args.state and args.writeconf:
+    if not args.state and not args.save and args.writeconf:
         statefile = os.path.join(savestatesdir, args.writeconf, 'Saved State ' + stateno + '.uss')
+    elif args.save:
+        statefile = os.path.join(savestatesdir, args.save, 'Saved State ' + stateno + '.uss')
     elif args.state:
         statefile = os.path.join(statedir, 'Saved State ' + stateno + '.uss')
     else:
@@ -514,7 +521,7 @@ if args.writeconf:
         config.write(fsuaeconf)
 else:
     # disable save states if no state dir
-    if not args.state and not fsuae.get('save_states_dir') and not fsuae.get('state_dir') and not fsuae.get('state_dir_name'):
+    if not args.state and not args.save and not fsuae.get('save_states_dir') and not fsuae.get('state_dir') and not fsuae.get('state_dir_name'):
         useopt('save_states', '0')
     fsuaeconf = tempfile.NamedTemporaryFile(mode='w', buffering=1, encoding='utf-8', suffix='.fs-uae', prefix='CONF', )
     config.write(fsuaeconf)
