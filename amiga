@@ -140,6 +140,7 @@ if not fsuae_exec:
 install_prefix = os.path.normpath(
     os.path.join(os.path.dirname(fsuae_exec), '..'))
 shaderdir = os.path.join(install_prefix, 'share', 'fs-uae', 'shaders')
+savestatesdir = os.path.join(basedir, 'Save States')
 
 # set a config
 global config
@@ -171,6 +172,9 @@ drive.add_argument("-6", "--hd2", help="use HDF/RDB/ZIP/LHA-file or directory fo
 drive.add_argument("-7", "--hd3", help="use HDF/RDB/ZIP/LHA-file or directory for HD3")
 drive.add_argument("-f", "--floppy", help="set additional floppy image(s)", nargs='+', type=argparse.FileType('r'))
 drive.add_argument("-z", "--zip", help="use floppy images in archive for disk drives", nargs='+', type=argparse.FileType('r'))
+state = parser.add_argument_group('Save State related options')
+state.add_argument("--state", help="save states to this custom directory", metavar='PATH')
+state.add_argument("--load", help="load save state no.", type=int, choices=range(1, 10), metavar='{1-9}')
 amodel = parser.add_mutually_exclusive_group()
 amodel.add_argument("-a", "--a500", help="emulate an Amiga 500 (default)", action="store_true")
 amodel.add_argument("-b", "--a1200", help="emulate an Amiga 1200", action="store_true")
@@ -464,6 +468,29 @@ for floppy in floppylist:
         print('WARNING: Too many floppy images. You can only use up to 20.')
         break
 
+# save state dir (--state)
+if args.state:
+    statedir = os.path.realpath(os.path.expanduser(args.state))
+    if not os.path.isdir(statedir):
+        try:
+            os.makedirs(statedir)
+        except OSError:
+            nicequit('Could not create save state directory: ' + statedir, 1)
+    useopt('state_dir', statedir)
+
+# load state if -W or --state
+if args.load:
+    stateno = str(args.load)
+    if not args.state and args.writeconf:
+        statefile = os.path.join(savestatesdir, args.writeconf, 'Saved State ' + stateno + '.uss')
+    elif args.state:
+        statefile = os.path.join(statedir, 'Saved State ' + stateno + '.uss')
+    else:
+        nicequit('Can\'t load state without valid save state directory.', 1)
+    if not os.path.isfile(statefile):
+        nicequit('Save state not found: ' + statefile, 1)
+    useopt('load_state', stateno)
+
 # set custom fs-uae options
 if args.opts:
     for option in args.opts:
@@ -482,11 +509,13 @@ if args.uaeopts:
 
 # write temp- or real-config if -W
 if args.writeconf:
-    wconf = confdir + os.sep + args.writeconf + '.fs-uae'
-    with open(wconf, 'wt') as wfsuaeconf:
-        config.write(wfsuaeconf)
-    fsuaeconf = wfsuaeconf
+    wconf = os.path.join(confdir, args.writeconf + '.fs-uae')
+    with open(wconf, 'wt') as fsuaeconf:
+        config.write(fsuaeconf)
 else:
+    # disable save states if no state dir
+    if not args.state and not fsuae.get('save_states_dir') and not fsuae.get('state_dir') and not fsuae.get('state_dir_name'):
+        useopt('save_states', '0')
     fsuaeconf = tempfile.NamedTemporaryFile(mode='w', buffering=1, encoding='utf-8', suffix='.fs-uae', prefix='CONF', )
     config.write(fsuaeconf)
 
