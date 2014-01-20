@@ -7,7 +7,7 @@ import tempfile
 import subprocess
 import sys
 import shutil
-import pdb
+#import pdb
 
 
 def nicequit(msg='', errno=0):
@@ -110,18 +110,8 @@ def sorted_nicely(l):
 
 
 def assignfromfloppylist(flist):
-    try:
-        useopt('floppy_drive_0', flist[0])
-        print('Using image for DF0: {0}'.format(flist[0]))
-        useopt('floppy_drive_1', flist[1])
-        print('Using image for DF1: {0}'.format(flist[1]))
-        useopt('floppy_drive_2', flist[2])
-        print('Using image for DF2: {0}'.format(flist[2]))
-        useopt('floppy_drive_3', flist[3])
-        print('Using image for DF3: {0}'.format(flist[3]))
-    except IndexError:
-        pass
-
+    [useopt('floppy_drive_{0}'.format(
+        floppyno), floppy) for floppyno, floppy in zip(range(4), flist)]
 
 
 # predefined stuff
@@ -288,14 +278,8 @@ elif args.lowres == 2:
 
 # fixed scaling
 if args.scale:
-    if args.scale == 1:
-        scale = "2"
-    elif args.scale == 2:
-        scale = "3"
-    elif args.scale == 3:
-        scale = "4"
-    useopt('scale_x', scale)
-    useopt('scale_y', scale)
+    useopt('scale_x', str(args.scale + 1))
+    useopt('scale_y', str(args.scale + 1))
 
 # setup more memory
 if args.xmem:
@@ -321,6 +305,7 @@ if args.lowaccuracy == 1:
     useopt('accuracy', '0')
 elif args.lowaccuracy == 2:
     useopt('accuracy', '-1')
+
 
 #quiet floppy
 if args.quietfloppy:
@@ -370,31 +355,16 @@ if args.shader:
         nicequit('shader not found: ' + args.shader, 1)
     useopt('shader', shaderfile)
 
-# assign disk images to floppy_drive_x and
-# also put them in a floppy list
-if args.df0:
-    useopt('floppy_drive_0', args.df0.name)
-    floppylist.append(args.df0.name)
-if args.df1:
-    useopt('floppy_drive_1', args.df1.name)
-    floppylist.append(args.df1.name)
-if args.df2:
-    useopt('floppy_drive_2', args.df2.name)
-    floppylist.append(args.df2.name)
-if args.df3:
-    useopt('floppy_drive_3', args.df3.name)
-    floppylist.append(args.df3.name)
+# assign disk images to floppy_drive_x and ...
+[useopt('floppy_drive_{0}'.format(floppydriveno), floppyarg.name) for floppydriveno, floppyarg in zip(
+    range(4), (args.df0, args.df1, args.df2, args.df3)) if floppyarg is not None]
+# ...also put them in a floppy list
+[floppylist.append(floppyarg.name) for floppyarg in (
+    args.df0, args.df1, args.df2, args.df3) if floppyarg is not None]
 
 # hdd config
-if args.hd0:
-    useopt('hard_drive_0', handlehdd(args.hd0))
-if args.hd1:
-    useopt('hard_drive_1', handlehdd(args.hd1))
-if args.hd2:
-    useopt('hard_drive_2', handlehdd(args.hd2))
-if args.hd3:
-    useopt('hard_drive_3', handlehdd(args.hd3))
-
+[useopt('hard_drive_{0}'.format(harddriveno), handlehdd(hddarg)) for harddriveno, hddarg in zip(
+    range(4), (args.hd0, args.hd1, args.hd2, args.hd3)) if hddarg is not None]
 
 # exract floppy images from a given .zip to a temp dir and use it
 if args.zip:
@@ -437,21 +407,16 @@ if args.somedisk:
     for disk in args.somedisk:
         if disk.lower().endswith(fexts) and os.path.isfile(disk):
             somefloppylist.append(disk)
-            floppylist.insert(0, disk)
+            floppylist.append(disk)
         elif (disk.lower().endswith(hexts) and os.path.isfile(disk)) or os.path.isdir(disk):
                 somehddlist.append(handlehdd(disk))
         else:
             nicequit(disk + ' can\'t be used for any drive.', 1)
     assignfromfloppylist(somefloppylist)
-    try:
-        useopt('hard_drive_0', somehddlist[0])
-        if args.somedisk[0].lower().endswith(hexts):
-            useopt('hard_drive_0_priority', '6')
-        useopt('hard_drive_1', somehddlist[1])
-        useopt('hard_drive_2', somehddlist[2])
-        useopt('hard_drive_3', somehddlist[3])
-    except IndexError:
-        pass
+    [useopt('hard_drive_{0}'.format(
+        harddriveno), harddrive) for harddriveno, harddrive in zip(range(4), somehddlist)]
+    if args.somedisk[0].lower().endswith(hexts) or os.path.isdir(args.somedisk[0]):
+        useopt('hard_drive_0_priority', '6')
 
 if args.db:
     print('Sorry, but the access to the OAGD has been removed at this place.')
@@ -460,14 +425,10 @@ if args.db:
     nicequit()
 
 # generate floppy_image_x arguments
-floppyno = 0
-for floppy in floppylist:
-    if floppyno <= 19:
-        useopt('floppy_image_' + str(floppyno), floppy)
-        floppyno += 1
-    else:
+[useopt('floppy_image_{0}'.format(
+    floppyimageno), floppyimagefile) for floppyimageno, floppyimagefile in zip(range(20), floppylist)]
+if len(floppylist) > 20:
         print('WARNING: Too many floppy images. You can only use up to 20.')
-        break
 
 # custom save state dir (--state)
 if args.state:
