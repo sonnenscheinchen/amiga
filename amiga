@@ -114,6 +114,17 @@ def assignfromfloppylist(flist):
         floppyno), floppy) for floppyno, floppy in zip(range(4), flist)]
 
 
+def getlog(log, show=True):
+    with open(log) as f:
+        if show:
+            for line in f:
+                print(line, end='')
+        else:
+            options = []
+            for line in f:
+                options.append(line.strip().split('=')[0])
+            return options
+
 # predefined stuff
 fexts = ('.adf', '.dms', '.adz', '.ipf')
 hexts = ('.hdf', '.zip', '.lha')
@@ -131,6 +142,7 @@ install_prefix = os.path.normpath(
     os.path.join(os.path.dirname(fsuae_exec), '..'))
 shaderdir = os.path.join(install_prefix, 'share', 'fs-uae', 'shaders')
 savestatesdir = os.path.join(basedir, 'Save States')
+logdir = os.path.join(basedir, 'Cache', 'Logs')
 
 # set a config
 global config
@@ -184,9 +196,23 @@ parser.add_argument("-j", "--jit", help="try to use the JIT compiler for emulati
 parser.add_argument("-s", "--shader", help="use a pixel shader", nargs='?', const=True)
 parser.add_argument("-o", "--opts", help="set custom fs-uae options (KEY=VALUE)", nargs='+')
 parser.add_argument("-u", "--uaeopts", help="set custom UNSUPPORTED uae_* options (KEY=VALUE)", nargs='+')
+logarg = parser.add_argument_group('Log file options')
+logarg.add_argument("--uaelog", help="Show UAE log file", action="store_true")
+logarg.add_argument("--log", help="Show fs-uae log file", action="store_true")
 
 args = parser.parse_args()
 
+# show uae log file
+if args.uaelog:
+    logfile = os.path.join(logdir, 'debug.uae')
+    getlog(logfile)
+    nicequit()
+
+# show fs-uae log file
+if args.log:
+    logfile = os.path.join(logdir, 'fs-uae.log.txt')
+    getlog(logfile)
+    nicequit()
 
 # list configs
 if args.listconf:
@@ -493,14 +519,14 @@ if args.modifyconf:
     subprocess.call([editor, fsuaeconf.name])
 
 # print config
-unsupported = False
+unsupported = []
 print('\nConfiguration:')
 for key in fsuae:
     if key.startswith('uae_'):
-        unsupported = True
+        unsupported.append(key)
     print(key + ' = ' + fsuae[key])
 if unsupported:
-    print('\nWARNING: You have unsupported uae_ options in your config.')
+    print('\nWARNING: You have {0} unsupported uae_ option(s) in your config.'.format(len(unsupported)))
     print('         Proceed at your own risk!\n')
 
 
@@ -508,6 +534,13 @@ if unsupported:
 if not args.noexec:
     with open(os.devnull, 'wb') as devnull:
         proc = subprocess.Popen(['fs-uae', fsuaeconf.name], stdout=devnull)
+        if unsupported:
+            logfile = os.path.join(logdir, 'debug.uae')
+            log = getlog(logfile, show=False)
+            #print(log)
+            for key in unsupported:
+                if key[4:] not in log:
+                    print('WARNING: option {0} did not apply to UAE core'.format(key))
         proc.wait()
         returncode = proc.returncode
         #returncode = subprocess.call(['fs-uae', fsuaeconf.name], stdout=subprocess.DEVNULL)
