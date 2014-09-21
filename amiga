@@ -159,7 +159,6 @@ fsuae = config['fs-uae']
 # parse command line arguments
 parser = argparse.ArgumentParser(description="FS-UAE command line launcher and config utility")
 configstuff = parser.add_argument_group('Config related options')
-configstuff.add_argument("-Q", "--db", help="query fs-uae game database for config", metavar='IMAGE', type=argparse.FileType('r'))
 configstuff.add_argument("-R", "--readconf", help="read from (a) config file(s) ", nargs='+', metavar=('config1', 'config2'))
 configstuff.add_argument("-W", "--writeconf", help="write a config file", metavar='config')
 configstuff.add_argument("-S", "--showconf", help="show a saved config file", metavar='config')
@@ -475,17 +474,20 @@ if args.somedisk:
     if args.somedisk[0].lower().endswith(hexts) or os.path.isdir(args.somedisk[0]):
         useopt('hard_drive_0_priority', '6')
 
-if args.db:
-    print('Sorry, but the access to the OAGD has been removed at this place.')
-    print('Please check out <oagd-launch> instead:')
-    print('https://github.com/sonnenscheinchen/oagd-launch')
-    nicequit()
-
 # generate floppy_image_x arguments
 [useopt('floppy_image_{0}'.format(
     floppyimageno), floppyimagefile) for floppyimageno, floppyimagefile in zip(range(20), floppylist)]
 if len(floppylist) > 20:
         print('WARNING: Too many floppy images. You can only use up to 20.')
+
+# set quiet floppy if no floppy image used
+auto_quiet = True
+for img_no in range(20):
+    if fsuae.get('floppy_image_{0}'.format(img_no)):
+        auto_quiet = False
+        break
+if auto_quiet:
+    useopt('floppy_drive_volume', '0')
 
 # custom save state dir (--state)
 if args.state:
