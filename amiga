@@ -7,7 +7,13 @@ import tempfile
 import subprocess
 import sys
 import shutil
-#import pdb
+
+try:
+    from amigaextractor import LhaExtractor
+except ImportError:
+    lha_support = False
+else:
+    lha_support = True
 
 
 def nicequit(msg='', errno=0):
@@ -81,6 +87,8 @@ def handlehdd(hdarg):
         return hdarg
     elif os.path.isfile(hdarg):
         if hdarg.lower().endswith('.lha'):
+            if not lha_support:
+                nicequit('LHA archives are not supported.', 1)
             global lhatmpdir
             lhatmpdir = tempfile.TemporaryDirectory(prefix='LHA')
             lhabasename = os.path.basename(hdarg)
@@ -88,13 +96,11 @@ def handlehdd(hdarg):
             print('Extracting LHA archive to ' + lhadir)
             print('Don\'t put any files in here! They will be deleted.')
             os.mkdir(lhadir)
-            try:
-                subprocess.check_call(['lha', 'xw=' + lhadir, hdarg])
-                return lhadir
-            except OSError:
-                nicequit('Error: lha binary not found in your $PATH', 1)
-            except subprocess.CalledProcessError as e:
-                nicequit('Error extracting ' + hdarg, e.returncode)
+            lha = LhaExtractor(hdarg)
+            ok, reason = lha.extract(dest=lhadir, verbose=True)
+            if not ok:
+                nicequit('Error extracting LHA archive: '.format(reason), 1)
+            return lhadir
         else:
             return hdarg
     else:
@@ -187,7 +193,9 @@ parser.add_argument("-n", "--onefloppy", help="use only one floppy drive", actio
 parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice", action='count')
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 2x/3x or 4x scaling", action="count")
-parser.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
+pmem = parser.add_mutually_exclusive_group()
+pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
+pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int)
 parser.add_argument("-v", "--vsync", help="enable vsync", action="store_true")
 parser.add_argument("-r", "--lowaccuracy", help="lower the emulation accuracy, can be set twice", action='count')
 parser.add_argument("-q", "--quietfloppy", help="quiet floppy drives", action="store_true")
@@ -321,6 +329,29 @@ if args.xmem:
         useopt('zorro_iii_memory', '131072')
     else:
         print('WARNING: Extra memory not activated.')
+
+# direct memory setting
+if args.mem:
+    chipmem, fastmem, slowmem = args.mem
+    if chipmem <= 4:
+        chipmem *= 1024
+    if chipmem % 256 != 0:
+        nicequit('Chip memory must be a multiple of 256.', 1)
+    useopt('chip_memory', str(chipmem))
+    if fastmem <= 1024:
+        fastmem *= 1024
+    if fastmem % 1024 != 0:
+        nicequit('Fast memory must be a multiple of 1024.', 1)
+    if fastmem > 8192:
+        useopt('zorro_iii_memory', str(fastmem))
+        useopt('fast_memory', '0')
+    else:
+        useopt('fast_memory', str(fastmem))
+    if slowmem <= 1:
+        slowmem *= 1024
+    if slowmem % 256 != 0:
+        nicequit('Slow memory must be a multiple of 256.', 1)
+    useopt('slow_memory', str(slowmem))
 
 # enable vsync
 if args.vsync:
