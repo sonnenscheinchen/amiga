@@ -194,8 +194,8 @@ parser.add_argument("-w", "--writeable", help="use writeable floppy images", act
 parser.add_argument("-g", "--scale", help="use fixed 2x/3x or 4x scaling", action="count")
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
-pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int)
-parser.add_argument("-v", "--vsync", help="enable vsync", action="store_true")
+pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
+parser.add_argument("-v", "--vsync", help="enable vsync, set twice for low lateny", action="count")
 parser.add_argument("-r", "--lowaccuracy", help="lower the emulation accuracy, can be set twice", action='count')
 parser.add_argument("-q", "--quietfloppy", help="quiet floppy drives", action="store_true")
 parser.add_argument("-k", "--keepaspect", help="keep aspect ratio", action="store_true")
@@ -353,15 +353,17 @@ if args.mem:
     useopt('slow_memory', str(slowmem))
 
 # enable vsync
-if args.vsync:
+if args.vsync == 1:
     useopt('video_sync', 'auto')
+elif args.vsync == 2:
+    useopt('video_sync', 'auto')
+    useopt('low_latency_vsync', '1')
 
 # set accuracy
 if args.lowaccuracy == 1:
     useopt('accuracy', '0')
 elif args.lowaccuracy == 2:
     useopt('accuracy', '-1')
-
 
 #quiet floppy
 if args.quietfloppy:
@@ -377,6 +379,7 @@ if args.onefloppy:
 
 # try to enable jit
 if args.jit:
+    os.environ['FSUAE_EXE'] = '32'
     if fsuae.get('amiga_model', 'A500') == 'A1200':
         print('WARNING: setting real 68020 cpu for A1200')
         useopt('amiga_model', 'A1200/020')
@@ -480,15 +483,6 @@ if args.somedisk:
 if len(floppylist) > 20:
         print('WARNING: Too many floppy images. You can only use up to 20.')
 
-# set quiet floppy if no floppy image used
-auto_quiet = True
-for img_no in range(20):
-    if fsuae.get('floppy_image_{0}'.format(img_no)):
-        auto_quiet = False
-        break
-if auto_quiet:
-    useopt('floppy_drive_volume', '0')
-
 # custom save state dir (--state)
 if args.state:
     statedir = os.path.realpath(os.path.expanduser(args.state))
@@ -546,6 +540,15 @@ else:
     fsuaeconf = tempfile.NamedTemporaryFile(mode='w', buffering=1, encoding='utf-8', suffix='.fs-uae', prefix='CONF', )
     config.write(fsuaeconf)
 
+# set quiet floppy if no floppy image used
+auto_quiet = True
+for img_no in range(20):
+    if fsuae.get('floppy_image_{0}'.format(img_no)):
+        auto_quiet = False
+        break
+if auto_quiet:
+    useopt('floppy_drive_volume', '0')
+
 # give user the chance to do last minute changes
 if args.modifyconf:
     editor = geteditor()
@@ -561,7 +564,6 @@ for key in fsuae:
 if unsupported:
     print('\nWARNING: You have {0} unsupported uae_ option(s) in your config.'.format(len(unsupported)))
     print('         Proceed at your own risk!\n')
-
 
 # Finally: fs-uae exec if not -X
 if not args.noexec:
