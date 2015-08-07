@@ -2,13 +2,12 @@ No readme yet.
 Here is "amiga --help":
 
 
-```
-usage: amiga [-h] [-Q IMAGE] [-R config1 [config2 ...]] [-W config]
-             [-S config] [-E config] [-D config] [-M] [-L] [-X] [-0 DF0]
-             [-1 DF1] [-2 DF2] [-3 DF3] [-4 HD0] [-5 HD1] [-6 HD2] [-7 HD3]
-             [-f FLOPPY [FLOPPY ...]] [-z ZIP [ZIP ...]] [--state PATH]
+```usage: amiga [-h] [-R config1 [config2 ...]] [-W config] [-S config]
+             [-E config] [-D config] [-M] [-L] [-X] [-0 DF0] [-1 DF1] [-2 DF2]
+             [-3 DF3] [-4 HD0] [-5 HD1] [-6 HD2] [-7 HD3] [-8 CDR]
+             [-f FLOPPY [FLOPPY ...]] [-z ZIP [ZIP ...]] [-d] [--state PATH]
              [--save DIRNAME] [--load {1-9}] [-a | -b | -c] [-t] [-n] [-l]
-             [-w] [-g] [-x | -m MEM MEM MEM] [-v] [-r] [-q] [-k] [-j]
+             [-w] [-g] [-x | -m chip fast slow] [-v] [-r] [-q] [-k] [-j]
              [-s [SHADER]] [-o OPTS [OPTS ...]] [-u UAEOPTS [UAEOPTS ...]]
              [--uaelog] [--log]
              [DISK [DISK ...]]
@@ -17,18 +16,18 @@ FS-UAE command line launcher and config utility
 
 optional arguments:
   -h, --help            show this help message and exit
-  -a, --a500            emulate an Amiga 500 (default)
-  -b, --a1200           emulate an Amiga 1200
-  -c, --a4000           emulate an Amiga 4000
-  -t, --turbofloppy     faster floppy, can be set twice
-  -n, --onefloppy       use only one floppy drive
+  -a, --a500            emulate an Amiga 500 (default), set twice for A600
+  -b, --a1200           emulate an Amiga 1200, set twice for CD32
+  -c, --a4000           emulate an Amiga 4000, A4000/PPC or A4000/OS4
+  -t, --turbofloppy     2x, 8x or infinite floppy speed
+  -n, --nrfloppy        use multiple times to set number of floppy drives
   -l, --lowres          use low resolution, can be set twice
   -w, --writeable       use writeable floppy images
-  -g, --scale           use fixed 2x/3x or 4x scaling
+  -g, --scale           use fixed 1x/2x/3x... scaling
   -x, --xmem            use X-tra memory
-  -m MEM MEM MEM, --mem MEM MEM MEM
+  -m chip fast slow, --mem chip fast slow
                         specify chip, fast and slow mem directly
-  -v, --vsync           enable vsync
+  -v, --vsync           enable vsync, set twice for low lateny
   -r, --lowaccuracy     lower the emulation accuracy, can be set twice
   -q, --quietfloppy     quiet floppy drives
   -k, --keepaspect      keep aspect ratio
@@ -41,7 +40,6 @@ optional arguments:
                         set custom UNSUPPORTED uae_* options (KEY=VALUE)
 
 Config related options:
-  -Q IMAGE, --db IMAGE  query fs-uae game database for config
   -R config1 [config2 ...], --readconf config1 [config2 ...]
                         read from (a) config file(s)
   -W config, --writeconf config
@@ -67,10 +65,12 @@ Disk related options:
   -5 HD1, --hd1 HD1     use HDF/RDB/ZIP/LHA-file or directory for HD1
   -6 HD2, --hd2 HD2     use HDF/RDB/ZIP/LHA-file or directory for HD2
   -7 HD3, --hd3 HD3     use HDF/RDB/ZIP/LHA-file or directory for HD3
+  -8 CDR, --cdr CDR     use .ISO/.CUE for cd-rom emulation
   -f FLOPPY [FLOPPY ...], --floppy FLOPPY [FLOPPY ...]
                         set additional floppy image(s)
   -z ZIP [ZIP ...], --zip ZIP [ZIP ...]
                         use floppy images in archive for disk drives
+  -d, --auto            guess corresponding floppies based on DF0
 
 Save State related options:
   --state PATH          save states to this custom directory
@@ -80,4 +80,5 @@ Save State related options:
 Log file options:
   --uaelog              Show UAE log file
   --log                 Show fs-uae log file
+
 ```

@@ -7,6 +7,9 @@ import tempfile
 import subprocess
 import sys
 import shutil
+import re
+from time import sleep
+from difflib import get_close_matches
 
 try:
     from amigaextractor import LhaExtractor
@@ -131,9 +134,21 @@ def getlog(log, show=True):
                 options.append(line.strip().split('=')[0])
             return options
 
+def set_temporary_options(state, save):
+    # disable save states if no state dir
+    if not state and not save and not fsuae.get(
+        'save_states_dir') and not fsuae.get('state_dir') and not fsuae.get(
+            'state_dir_name'):
+        useopt('save_states', '0')
+    # set rdb mode for hdds with .rdb ext.
+    for hdd_no in range(10):
+        if fsuae.get('hard_drive_{0}'.format(hdd_no), '').lower().endswith('.rdb'):
+            useopt('hard_drive_{0}_type'.format(hdd_no), 'rdb')
+
+
 # predefined stuff
 fexts = ('.adf', '.dms', '.adz', '.ipf')
-hexts = ('.hdf', '.zip', '.lha')
+hexts = ('.hdf', '.zip', '.lha', '.rdb', '.vhd')
 floppylist = []
 
 # get the fs-uae-base dir, setup others
@@ -149,6 +164,7 @@ install_prefix = os.path.normpath(
 shaderdir = os.path.join(install_prefix, 'share', 'fs-uae', 'shaders')
 savestatesdir = os.path.join(basedir, 'Save States')
 logdir = os.path.join(basedir, 'Cache', 'Logs')
+romdir = os.path.join(basedir, 'Kickstarts')
 
 # set a config
 global config
@@ -177,21 +193,23 @@ drive.add_argument("-4", "--hd0", help="use HDF/RDB/ZIP/LHA-file or directory fo
 drive.add_argument("-5", "--hd1", help="use HDF/RDB/ZIP/LHA-file or directory for HD1")
 drive.add_argument("-6", "--hd2", help="use HDF/RDB/ZIP/LHA-file or directory for HD2")
 drive.add_argument("-7", "--hd3", help="use HDF/RDB/ZIP/LHA-file or directory for HD3")
+drive.add_argument("-8", "--cdr", help="use .ISO/.CUE for cd-rom emulation", type=argparse.FileType('r'))
 drive.add_argument("-f", "--floppy", help="set additional floppy image(s)", nargs='+', type=argparse.FileType('r'))
 drive.add_argument("-z", "--zip", help="use floppy images in archive for disk drives", nargs='+', type=argparse.FileType('r'))
+drive.add_argument("-d", "--auto", help="guess corresponding floppies based on DF0", action='store_true')
 state = parser.add_argument_group('Save State related options')
 state.add_argument("--state", help="save states to this custom directory", metavar='PATH')
 state.add_argument("--save", help="save states to fs-uae save states dir with this name", metavar='DIRNAME')
 state.add_argument("--load", help="load save state no.", type=int, choices=range(1, 10), metavar='{1-9}')
 amodel = parser.add_mutually_exclusive_group()
-amodel.add_argument("-a", "--a500", help="emulate an Amiga 500 (default)", action="store_true")
-amodel.add_argument("-b", "--a1200", help="emulate an Amiga 1200", action="store_true")
-amodel.add_argument("-c", "--a4000", help="emulate an Amiga 4000", action="store_true")
-parser.add_argument("-t", "--turbofloppy", help="faster floppy, can be set twice", action='count')
-parser.add_argument("-n", "--onefloppy", help="use only one floppy drive", action="store_true")
+amodel.add_argument("-a", "--a500", help="emulate an Amiga 500 (default), set twice for A600", action="count")
+amodel.add_argument("-b", "--a1200", help="emulate an Amiga 1200, set twice for CD32", action="count")
+amodel.add_argument("-c", "--a4000", help="emulate an Amiga 4000, A4000/PPC or A4000/OS4", action="count")
+parser.add_argument("-t", "--turbofloppy", help="2x, 8x or infinite floppy speed", action='count')
+parser.add_argument("-n", "--nrfloppy", help="use multiple times to set number of floppy drives", action="count")
 parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice", action='count')
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
-parser.add_argument("-g", "--scale", help="use fixed 2x/3x or 4x scaling", action="count")
+parser.add_argument("-g", "--scale", help="use fixed 1x/2x/3x... scaling", action="count")
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
 pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
@@ -283,19 +301,32 @@ if args.readconf:
 
 # Amiga model specific setup
 if args.a500:
-    useopt('amiga_model', 'A500')
+    if args.a500 == 1:
+        useopt('amiga_model', 'A500')
+    elif args.a500 == 2:
+        useopt('amiga_model', 'A600')
 elif args.a1200:
-    useopt('amiga_model', 'A1200')
+    if args.a1200 == 1:
+        useopt('amiga_model', 'A1200')
+    elif args.a1200 == 2:
+        useopt('amiga_model', 'CD32')
 elif args.a4000:
-    useopt('amiga_model', 'A4000/040')
-    useopt('uaegfx_card', '1')
-    useopt('bsdsocket_library', '1')
+    if args.a4000 == 1:
+        useopt('amiga_model', 'A4000/040')
+        useopt('graphics_card', 'uaegfx')
+        useopt('bsdsocket_library', '1')
+    elif args.a4000 == 2:
+        useopt('amiga_model', 'A4000/PPC')
+    elif args.a4000 == 3:
+        useopt('amiga_model', 'A4000/OS4')
 
 # floppy speed setup
 if args.turbofloppy == 1:
     useopt('floppy_drive_speed', '200')
 elif args.turbofloppy == 2:
     useopt('floppy_drive_speed', '800')
+elif args.turbofloppy == 3:
+    useopt('floppy_drive_speed', '0')
 
 # writebale floppy
 if args.writeable:
@@ -311,8 +342,8 @@ elif args.lowres == 2:
 
 # fixed scaling
 if args.scale:
-    useopt('scale_x', str(args.scale + 1))
-    useopt('scale_y', str(args.scale + 1))
+    useopt('scale_x', str(args.scale))
+    useopt('scale_y', str(args.scale))
 
 # setup more memory
 if args.xmem:
@@ -321,10 +352,11 @@ if args.xmem:
         useopt('chip_memory', '1024')
         useopt('fast_memory', '1024')
         useopt('slow_memory', '0')
+    elif amodel == 'A600':
+        useopt('fast_memory', '4096')
     elif amodel == 'A1200':
         useopt('fast_memory', '8192')
     elif amodel == 'A4000/040':
-        useopt('chip_memory', '2048')
         useopt('zorro_iii_memory', '131072')
     else:
         print('WARNING: Extra memory not activated.')
@@ -373,9 +405,12 @@ if args.quietfloppy:
 if args.keepaspect:
     useopt('keep-aspect', '1')
 
-# use only one fdd
-if args.onefloppy:
-    useopt('floppy_drive_count', '1')
+# set number of floppy drives
+if args.nrfloppy:
+    if args.nrfloppy > 3:
+        useopt('floppy_drive_count', '4')
+    else:
+        useopt('floppy_drive_count', str(args.nrfloppy))
 
 # try to enable jit
 if args.jit:
@@ -425,10 +460,14 @@ if args.shader:
 [useopt('hard_drive_{0}'.format(harddriveno), handlehdd(hddarg)) for harddriveno, hddarg in zip(
     range(4), (args.hd0, args.hd1, args.hd2, args.hd3)) if hddarg is not None]
 
+# cd-rom config
+if args.cdr:
+    useopt('cdrom_drive_0', args.cdr.name)
+    useopt('cdrom_image_0', args.cdr.name)
+
 # exract floppy images from a given .zip to a temp dir and use it
 if args.zip:
     import zipfile
-    import re
     tmpdir = tempfile.TemporaryDirectory(prefix='ZIP')
     zipfilelist = []
     for cmdzip in args.zip:
@@ -476,6 +515,19 @@ if args.somedisk:
         harddriveno), harddrive) for harddriveno, harddrive in zip(range(4), somehddlist)]
     if args.somedisk[0].lower().endswith(hexts) or os.path.isdir(args.somedisk[0]):
         useopt('hard_drive_0_priority', '6')
+
+# guess the corresponding disk(s) (-d)
+if args.auto:
+    autofloppy =  fsuae.get('floppy_drive_0')
+    if not autofloppy:
+        nicequit('Need a floppy for DF0 for guessing the corresponding disk.', 1)
+    floppylist = []
+    del fsuae['floppy_drive_0']
+    autofloppy_dir, autofloppy_name = os.path.split(autofloppy)
+    autofloppy_dir_list = os.listdir(os.path.realpath(autofloppy_dir))
+    guessed_floppies = get_close_matches(autofloppy_name, autofloppy_dir_list, n=11, cutoff=0.8)
+    floppylist.extend(sorted_nicely(guessed_floppies))
+    assignfromfloppylist(floppylist)
 
 # generate floppy_image_x arguments
 [useopt('floppy_image_{0}'.format(
@@ -534,20 +586,10 @@ if args.writeconf:
     with open(wconf, 'wt') as fsuaeconf:
         config.write(fsuaeconf)
 else:
-    # disable save states if no state dir
-    if not args.state and not args.save and not fsuae.get('save_states_dir') and not fsuae.get('state_dir') and not fsuae.get('state_dir_name'):
-        useopt('save_states', '0')
-    fsuaeconf = tempfile.NamedTemporaryFile(mode='w', buffering=1, encoding='utf-8', suffix='.fs-uae', prefix='CONF', )
+    set_temporary_options(args.state, args.save)
+    fsuaeconf = tempfile.NamedTemporaryFile(mode='w', suffix='.fs-uae', prefix='CONF')
     config.write(fsuaeconf)
-
-# set quiet floppy if no floppy image used
-auto_quiet = True
-for img_no in range(20):
-    if fsuae.get('floppy_image_{0}'.format(img_no)):
-        auto_quiet = False
-        break
-if auto_quiet:
-    useopt('floppy_drive_volume', '0')
+    fsuaeconf.flush()
 
 # give user the chance to do last minute changes
 if args.modifyconf:
@@ -577,11 +619,26 @@ if not args.noexec:
                 if key[4:] not in log:
                     print('WARNING: option {0} did not apply to UAE core'.format(key))
         proc.wait()
+        sleep(1)
         returncode = proc.returncode
         #returncode = subprocess.call(['fs-uae', fsuaeconf.name], stdout=subprocess.DEVNULL)
         # Python 3.3 only
 else:
     returncode = 0
+
+# remove state dir if empty or no real config (-W)
+saved_states = os.path.join(savestatesdir, os.path.basename(fsuaeconf.name[:-7]))
+try:
+    os.rmdir(saved_states)
+except FileNotFoundError:
+    pass
+except OSError:
+    if not args.writeconf:
+        [ os.remove(os.path.join(saved_states, f)) for f in os.listdir(saved_states) if f.endswith(('.sdf', '.uss')) ]
+        try:
+            os.rmdir(saved_states)
+        except OSError:
+            pass
 
 # exit
 if returncode == 0:
