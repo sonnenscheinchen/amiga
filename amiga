@@ -210,6 +210,7 @@ parser.add_argument("-n", "--nrfloppy", help="use multiple times to set number o
 parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice", action='count')
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 1x/2x/3x... scaling", action="count")
+parser.add_argument("-i", "--cpu-idle", help="set cpu idle value", type=int, choices=range(0, 11), metavar='{0-10}')
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
 pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
@@ -425,10 +426,7 @@ if args.jit:
     useopt('uae_comp_trustbyte', 'direct')
     useopt('uae_comp_trustword', 'direct')
     useopt('uae_comp_trustnaddr', 'direct')
-    if fsuae.get('amiga_model', 'A500') == 'A1200/020':
-        useopt('uae_comp_trustlong', 'direct')
-    else:
-        useopt('uae_comp_trustlong', 'indirectks')
+    useopt('uae_comp_trustlong', 'direct')
 
 # pixel shader stuff
 if args.shader:
@@ -464,6 +462,10 @@ if args.shader:
 if args.cdr:
     useopt('cdrom_drive_0', args.cdr.name)
     useopt('cdrom_image_0', args.cdr.name)
+
+# set cpu_idle option
+if args.cpu-idle:
+    useopt('cpu_idle', args.cpu-idle)
 
 # exract floppy images from a given .zip to a temp dir and use it
 if args.zip:
