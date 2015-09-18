@@ -140,11 +140,27 @@ def set_temporary_options(state, save):
         'save_states_dir') and not fsuae.get('state_dir') and not fsuae.get(
             'state_dir_name'):
         useopt('save_states', '0')
-    # set rdb mode for hdds with .rdb ext.
+    # detect file system, configure fs-handler
+    # please copy fs-handlers to $BASE_DIR/Hard Drives
     for hdd_no in range(10):
-        if fsuae.get('hard_drive_{0}'.format(hdd_no), '').lower().endswith('.rdb'):
-            useopt('hard_drive_{0}_type'.format(hdd_no), 'rdb')
-
+        if fsuae.get('hard_drive_{0}_type'.format(hdd_no)) == 'rdb':
+            continue
+        if fsuae.get('hard_drive_{0}_file_system'.format(hdd_no)) is not None:
+            continue
+        hdf = fsuae.get('hard_drive_{0}'.format(hdd_no))
+        if hdf is None or not os.path.isfile(hdf):
+            continue
+        with open(hdf, 'rb') as f:
+            fs = f.read(8)
+            if fs == b'conectix':
+                f.seek(0xa00, 0) # FIXME: get offset from header
+                fs = f.read(8)
+        if fs[:3] == b'PFS':
+            # http://aminet.net/disk/misc/pfs3aio.lha#pfs3_aio-handler
+            useopt('hard_drive_{0}_file_system'.format(hdd_no), 'pfs3_aio-handler')
+        elif fs[:3] == b'SFS':
+            # http://aminet.net/disk/misc/SFS.lha#Smartfilesystem/AmigaOS3.x/L/SmartFilesystem
+            useopt('hard_drive_{0}_file_system'.format(hdd_no), 'SmartFilesystem')
 
 # predefined stuff
 fexts = ('.adf', '.dms', '.adz', '.ipf')
@@ -210,7 +226,7 @@ parser.add_argument("-n", "--nrfloppy", help="use multiple times to set number o
 parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice", action='count')
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 1x/2x/3x... scaling", action="count")
-parser.add_argument("-i", "--cpu-idle", help="set cpu idle value", type=int, choices=range(0, 11), metavar='{0-10}')
+parser.add_argument("-i", "--cpuidle", help="set cpu_idle value", type=int, choices=range(0, 11), metavar='{0-10}')
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
 pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
@@ -462,10 +478,9 @@ if args.shader:
 if args.cdr:
     useopt('cdrom_drive_0', args.cdr.name)
     useopt('cdrom_image_0', args.cdr.name)
-
-# set cpu_idle option
-if args.cpu-idle:
-    useopt('cpu_idle', args.cpu-idle)
+    
+if args.cpuidle:
+    useopt('cpu_idle', str(args.cpuidle))
 
 # exract floppy images from a given .zip to a temp dir and use it
 if args.zip:
