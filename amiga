@@ -153,12 +153,18 @@ def set_temporary_options(state, save):
         with open(hdf, 'rb') as f:
             fs = f.read(8)
             if fs == b'conectix':
-                f.seek(0xa00, 0) # FIXME: get offset from header
-                fs = f.read(8)
-        if fs[:3] == b'PFS':
+                f.seek(0x21c, 0)
+                max_bat_entries = int.from_bytes(f.read(4), byteorder='big')
+                end_of_bat = 0x600 + max_bat_entries * 4
+                rounded_to_cylinder = -(-end_of_bat // 512) * 512 + 512
+                f.seek(rounded_to_cylinder, 0)
+                fs = f.read(3)
+            else:
+                fs = fs[:3]
+        if fs == b'PFS' or fs == b'PDS':
             # http://aminet.net/disk/misc/pfs3aio.lha#pfs3_aio-handler
             useopt('hard_drive_{0}_file_system'.format(hdd_no), 'pfs3_aio-handler')
-        elif fs[:3] == b'SFS':
+        elif fs == b'SFS':
             # http://aminet.net/disk/misc/SFS.lha#Smartfilesystem/AmigaOS3.x/L/SmartFilesystem
             useopt('hard_drive_{0}_file_system'.format(hdd_no), 'SmartFilesystem')
 
