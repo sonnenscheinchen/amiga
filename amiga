@@ -437,7 +437,6 @@ if args.nrfloppy:
 
 # try to enable jit
 if args.jit:
-    os.environ['FSUAE_EXE'] = '32'
     if fsuae.get('amiga_model', 'A500') == 'A1200':
         print('WARNING: setting real 68020 cpu for A1200')
         useopt('amiga_model', 'A1200/020')
@@ -449,6 +448,7 @@ if args.jit:
     useopt('uae_comp_trustword', 'direct')
     useopt('uae_comp_trustnaddr', 'direct')
     useopt('uae_comp_trustlong', 'direct')
+    useopt('uae_compfpu', '1') # we are brave
 
 # pixel shader stuff
 if args.shader:
@@ -620,32 +620,15 @@ if args.modifyconf:
     subprocess.call([editor, fsuaeconf.name])
 
 # print config
-unsupported = []
 print('\nConfiguration:')
-for key in fsuae:
-    if key.startswith('uae_'):
-        unsupported.append(key)
-    print(key + ' = ' + fsuae[key])
-if unsupported:
-    print('\nWARNING: You have {0} unsupported uae_ option(s) in your config.'.format(len(unsupported)))
-    print('         Proceed at your own risk!\n')
+[ print('{0} = {1}'.format(key, fsuae[key])) for key in sorted(fsuae.keys()) ]
 
 # Finally: fs-uae exec if not -X
 if not args.noexec:
-    with open(os.devnull, 'wb') as devnull:
-        proc = subprocess.Popen(['fs-uae', fsuaeconf.name], stdout=devnull)
-        if unsupported:
-            logfile = os.path.join(logdir, 'debug.uae')
-            log = getlog(logfile, show=False)
-            #print(log)
-            for key in unsupported:
-                if key[4:] not in log:
-                    print('WARNING: option {0} did not apply to UAE core'.format(key))
-        proc.wait()
-        sleep(1)
-        returncode = proc.returncode
-        #returncode = subprocess.call(['fs-uae', fsuaeconf.name], stdout=subprocess.DEVNULL)
-        # Python 3.3 only
+    print('\n\nStarting FS-UAE...')
+    fsuae_exec = os.getenv('FSUAE', 'fs-uae')
+    returncode = subprocess.call([fsuae_exec, fsuaeconf.name])
+    sleep(.5)
 else:
     returncode = 0
 
@@ -667,4 +650,4 @@ except OSError:
 if returncode == 0:
     nicequit()
 else:
-    nicequit('\nFs-uae died with exit status: ' + str(returncode), returncode)
+    nicequit('\nFs-uae died with exit status: {0}'.format(returncode), returncode)
