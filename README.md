@@ -9,7 +9,7 @@ usage: amiga [-h] [-R config1 [config2 ...]] [-W config] [-S config]
              [--save DIRNAME] [--load {1-9}] [-a | -b | -c] [-t] [-n] [-l]
              [-w] [-g] [-i {0-10}] [-x | -m chip fast slow] [-v] [-r] [-q]
              [-k] [-j] [-s [SHADER]] [-o OPTS [OPTS ...]]
-             [-u UAEOPTS [UAEOPTS ...]] [--uaelog] [--log]
+             [-u UAEOPTS [UAEOPTS ...]] [--uaelog] [--log] [--stdoutlog]
              [DISK [DISK ...]]
 
 FS-UAE command line launcher and config utility
@@ -82,4 +82,5 @@ Save State related options:
 Log file options:
   --uaelog              Show UAE log file
   --log                 Show fs-uae log file
+  --stdoutlog           Print fs-uae log file to stdout
 ```

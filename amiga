@@ -169,8 +169,8 @@ def set_temporary_options(state, save):
             useopt('hard_drive_{0}_file_system'.format(hdd_no), 'SmartFilesystem')
 
 # predefined stuff
-fexts = ('.adf', '.dms', '.adz', '.ipf')
-hexts = ('.hdf', '.zip', '.lha', '.rdb', '.vhd')
+fexts = ('.adf', '.dms', '.adz', '.ipf', '.zip')
+hexts = ('.hdf', '.lha', '.rdb', '.vhd')
 floppylist = []
 
 # get the fs-uae-base dir, setup others
@@ -247,6 +247,7 @@ parser.add_argument("-u", "--uaeopts", help="set custom UNSUPPORTED uae_* option
 logarg = parser.add_argument_group('Log file options')
 logarg.add_argument("--uaelog", help="Show UAE log file", action="store_true")
 logarg.add_argument("--log", help="Show fs-uae log file", action="store_true")
+logarg.add_argument("--stdoutlog", help="Print fs-uae log file to stdout", action="store_true")
 
 args = parser.parse_args()
 
@@ -443,12 +444,8 @@ if args.jit:
     if fsuae.get('accuracy', '1') == '1':
         print('WARNING: disabling cycle exact emulation for JIT.')
         useopt('accuracy', '0')
-    useopt('uae_cachesize', '8192')
-    useopt('uae_comp_trustbyte', 'direct')
-    useopt('uae_comp_trustword', 'direct')
-    useopt('uae_comp_trustnaddr', 'direct')
-    useopt('uae_comp_trustlong', 'direct')
-    useopt('uae_compfpu', '1') # we are brave
+    useopt('jit_compiler', '1')
+    useopt('jit_memory', 'direct')
 
 # pixel shader stuff
 if args.shader:
@@ -541,7 +538,7 @@ if args.somedisk:
 
 # guess the corresponding disk(s) (-d)
 if args.auto:
-    autofloppy =  fsuae.get('floppy_drive_0')
+    autofloppy = fsuae.get('floppy_drive_0')
     if not autofloppy:
         nicequit('Need a floppy for DF0 for guessing the corresponding disk.', 1)
     floppylist = []
@@ -549,7 +546,8 @@ if args.auto:
     autofloppy_dir, autofloppy_name = os.path.split(autofloppy)
     autofloppy_dir_list = os.listdir(os.path.realpath(autofloppy_dir))
     guessed_floppies = get_close_matches(autofloppy_name, autofloppy_dir_list, n=11, cutoff=0.8)
-    floppylist.extend(sorted_nicely(guessed_floppies))
+    autofloppylist = sorted_nicely(guessed_floppies)
+    [floppylist.append(os.path.join(autofloppy_dir, i)) for i in autofloppylist if i.endswith(autofloppy[-3:])]
     assignfromfloppylist(floppylist)
 
 # generate floppy_image_x arguments
@@ -627,8 +625,25 @@ print('\nConfiguration:')
 if not args.noexec:
     print('\n\nStarting FS-UAE...')
     fsuae_exec = os.getenv('FSUAE', 'fs-uae')
-    returncode = subprocess.call([fsuae_exec, fsuaeconf.name])
-    sleep(.5)
+    if args.stdoutlog:
+        useopt('log_flush', '1')
+        proc = subprocess.Popen([fsuae_exec, fsuaeconf.name])
+        sleep(.5)
+        with open(os.path.join(logdir, 'fs-uae.log.txt')) as f:
+            pos = 0
+            while proc.poll() is None:
+                f.seek(pos)
+                logdata = f.read()
+                pos = f.tell()
+                if logdata:
+                    print(str(logdata))
+                else:
+                    sleep(1)
+            print(str(f.read()))
+        proc.wait()
+        returncode = proc.returncode
+    else:
+        returncode = subprocess.call([fsuae_exec, fsuaeconf.name])
 else:
     returncode = 0
 
