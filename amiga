@@ -410,10 +410,10 @@ if args.mem:
 
 # enable vsync
 if args.vsync == 1:
-    useopt('video_sync', 'auto')
+    useopt('video_sync', '1')
+    useopt('low_latency_vsync', '0')
 elif args.vsync == 2:
-    useopt('video_sync', 'auto')
-    useopt('low_latency_vsync', '1')
+    useopt('video_sync', '1')
 
 # set accuracy
 if args.lowaccuracy == 1:
@@ -626,8 +626,7 @@ if not args.noexec:
     print('\n\nStarting FS-UAE...')
     fsuae_exec = os.getenv('FSUAE', 'fs-uae')
     if args.stdoutlog:
-        useopt('log_flush', '1')
-        proc = subprocess.Popen([fsuae_exec, fsuaeconf.name])
+        proc = subprocess.Popen([fsuae_exec, '--log_flush=1', fsuaeconf.name])
         sleep(.5)
         with open(os.path.join(logdir, 'fs-uae.log.txt')) as f:
             pos = 0
