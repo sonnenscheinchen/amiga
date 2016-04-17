@@ -5,11 +5,11 @@ Here is "amiga --help":
 usage: amiga [-h] [-R config1 [config2 ...]] [-W config] [-S config]
              [-E config] [-D config] [-M] [-L] [-X] [-0 DF0] [-1 DF1] [-2 DF2]
              [-3 DF3] [-4 HD0] [-5 HD1] [-6 HD2] [-7 HD3] [-8 CDR]
-             [-f FLOPPY [FLOPPY ...]] [-z ZIP [ZIP ...]] [-d] [--state PATH]
-             [--save DIRNAME] [--load {1-9}] [-a | -b | -c] [-t] [-n] [-l]
-             [-w] [-g] [-i {0-10}] [-x | -m chip fast slow] [-v] [-r] [-q]
-             [-k] [-j] [-s [SHADER]] [-o OPTS [OPTS ...]]
-             [-u UAEOPTS [UAEOPTS ...]] [--uaelog] [--log] [--stdoutlog]
+             [-f FLOPPY [FLOPPY ...]] [-z ZIP [ZIP ...]] [-d] [--load {1-9}]
+             [-a | -b | -c] [-t] [-n] [-l] [-w] [-g] [-i {0-10}]
+             [-x | -m chip fast slow] [-v] [-r] [-q] [-k] [-j] [-s [SHADER]]
+             [-o OPTS [OPTS ...]] [-u UAEOPTS [UAEOPTS ...]] [--uaelog]
+             [--log] [--stdoutlog]
              [DISK [DISK ...]]
 
 FS-UAE command line launcher and config utility
@@ -75,8 +75,6 @@ Disk related options:
   -d, --auto            guess corresponding floppies based on DF0
 
 Save State related options:
-  --state PATH          save states to this custom directory
-  --save DIRNAME        save states to fs-uae save states dir with this name
   --load {1-9}          load save state no.
 
 Log file options:
