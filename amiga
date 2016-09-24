@@ -8,6 +8,7 @@ import subprocess
 import sys
 import shutil
 import re
+import zipfile
 from time import sleep
 from difflib import get_close_matches
 
@@ -149,7 +150,8 @@ if not fsuae_exec:
     nicequit('Could not find fs-uae executable.', 1)
 install_prefix = os.path.normpath(
     os.path.join(os.path.dirname(fsuae_exec), '..'))
-shaderdir = os.path.join(install_prefix, 'share', 'fs-uae', 'shaders')
+datfile = os.path.join(install_prefix, 'share', 'fs-uae', 'fs-uae.dat')
+shaderdir = os.path.join(basedir, 'Data', 'Shaders')
 savestatesdir = os.path.join(basedir, 'Save States')
 logdir = os.path.join(basedir, 'Cache', 'Logs')
 romdir = os.path.join(basedir, 'Kickstarts')
@@ -414,12 +416,20 @@ if args.jit:
 
 # pixel shader stuff
 if args.shader:
-    shaderlist = os.listdir(shaderdir)
-    shaderlist.sort()
+    if os.path.isdir(shaderdir):
+        shaderlist = set(os.listdir(shaderdir))
+    else:
+        shaderlist = set()
+    dat = zipfile.ZipFile(datfile)
+    for s in dat.namelist():
+        if len(s) > 21 and s.startswith('share/fs-uae/shaders/'):
+            shaderlist.add(s[21:])
+    dat.close()
+    shaderlist = sorted(list(shaderlist))
     if args.shader is True:
         for dshader in enumerate(shaderlist):
             print('{0} - {1}'.format(dshader[0], dshader[1].rsplit('.shader')[0]))
-        shaderno = 'unset'
+        shaderno = ''
         while not shaderno.isdigit() or 0 < int(shaderno) > len(shaderlist):
             shaderno = input('Please select a shader: >> ')
         shaderfile = shaderlist[int(shaderno)].rsplit('.shader')[0]
@@ -466,7 +476,6 @@ if args.cpuspeed:
 
 # exract floppy images from a given .zip to a temp dir and use it
 if args.zip:
-    import zipfile
     tmpdir = tempfile.TemporaryDirectory(prefix='ZIP')
     zipfilelist = []
     for cmdzip in args.zip:
