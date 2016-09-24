@@ -618,25 +618,10 @@ print('\nConfiguration:')
 # Finally: fs-uae exec if not -X
 if not args.noexec:
     print('\n\nStarting FS-UAE...')
-    fsuae_exec = os.getenv('FSUAE', 'fs-uae')
+    fsuae_exec = [os.getenv('FSUAE', 'fs-uae'), fsuaeconf.name]
     if args.stdoutlog:
-        proc = subprocess.Popen([fsuae_exec, '--log_flush=1', fsuaeconf.name])
-        sleep(.5)
-        with open(os.path.join(logdir, 'fs-uae.log.txt')) as f:
-            pos = 0
-            while proc.poll() is None:
-                f.seek(pos)
-                logdata = f.read()
-                pos = f.tell()
-                if logdata:
-                    print(str(logdata))
-                else:
-                    sleep(1)
-            print(str(f.read()))
-        proc.wait()
-        returncode = proc.returncode
-    else:
-        returncode = subprocess.call([fsuae_exec, fsuaeconf.name])
+        fsuae_exec += ['--stdout', '--log_flush=1']
+    returncode = subprocess.call(fsuae_exec)
 else:
     returncode = 0
 
