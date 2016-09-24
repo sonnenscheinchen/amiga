@@ -197,6 +197,7 @@ parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 1x/2x/3x... scaling", action="count")
 parser.add_argument("-i", "--cpuidle", help="set cpu_idle value", type=int, choices=range(0, 11), metavar='{0-10}')
+parser.add_argument("-p", "--cpuspeed", help="set percentage of cpu speed", type=int, choices=range(1, 1000), metavar='{1-1000}')
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
 pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
@@ -448,6 +449,20 @@ if args.cdr:
     
 if args.cpuidle:
     useopt('cpu_idle', str(args.cpuidle))
+
+# cpu speed config
+if args.cpuspeed:
+    multiplier = None
+    if fsuae.get('accuracy', '1') == '1':
+        configured_model = fsuae.get('amiga_model', 'A500')
+        if configured_model.upper() in ('A500', 'A600', 'A1000', 'CDTV', 'A500/512K', 'A500+'):
+            multiplier = 2
+        elif configured_model.upper() in ('A1200', 'A1200/020', 'A1200/3.0', 'CD32', 'CD32/FMV'):
+            multiplier = 4
+    if multiplier:
+        useopt('uae_cpu_multiplier', str(round(multiplier * args.cpuspeed / 100)))
+    else:
+        useopt('uae_cpu_throttle', str((args.cpuspeed - 100) * 10.0))
 
 # exract floppy images from a given .zip to a temp dir and use it
 if args.zip:
