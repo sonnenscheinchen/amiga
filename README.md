@@ -6,10 +6,10 @@ usage: amiga [-h] [-R config1 [config2 ...]] [-W config] [-S config]
              [-E config] [-D config] [-M] [-L] [-X] [-0 DF0] [-1 DF1] [-2 DF2]
              [-3 DF3] [-4 HD0] [-5 HD1] [-6 HD2] [-7 HD3] [-8 CDR]
              [-f FLOPPY [FLOPPY ...]] [-z ZIP [ZIP ...]] [-d] [--load {1-9}]
-             [-a | -b | -c] [-t] [-n] [-l] [-w] [-g] [-i {0-10}]
+             [-a | -b | -c] [-t] [-n] [-l] [-w] [-g] [-i {0-10}] [-p {1-1000}]
              [-x | -m chip fast slow] [-v] [-r] [-q] [-k] [-j] [-s [SHADER]]
              [-o OPTS [OPTS ...]] [-u UAEOPTS [UAEOPTS ...]] [--uaelog]
-             [--log] [--stdoutlog]
+             [--log] [--stdoutlog] [--libretro]
              [DISK [DISK ...]]
 
 FS-UAE command line launcher and config utility
@@ -26,6 +26,8 @@ optional arguments:
   -g, --scale           use fixed 1x/2x/3x... scaling
   -i {0-10}, --cpuidle {0-10}
                         set cpu_idle value
+  -p {1-1000}, --cpuspeed {1-1000}
+                        set percentage of cpu speed
   -x, --xmem            use X-tra memory
   -m chip fast slow, --mem chip fast slow
                         specify chip, fast and slow mem directly
@@ -81,4 +83,7 @@ Log file options:
   --uaelog              Show UAE log file
   --log                 Show fs-uae log file
   --stdoutlog           Print fs-uae log file to stdout
+
+FS-UAE libretro options:
+  --libretro            Use FS-UAE libretro
 ```

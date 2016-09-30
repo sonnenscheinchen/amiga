@@ -215,6 +215,8 @@ logarg = parser.add_argument_group('Log file options')
 logarg.add_argument("--uaelog", help="Show UAE log file", action="store_true")
 logarg.add_argument("--log", help="Show fs-uae log file", action="store_true")
 logarg.add_argument("--stdoutlog", help="Print fs-uae log file to stdout", action="store_true")
+libretro = parser.add_argument_group('FS-UAE libretro options')
+libretro.add_argument("--libretro", help="Use FS-UAE libretro", action="store_true")
 
 args = parser.parse_args()
 
@@ -627,7 +629,10 @@ print('\nConfiguration:')
 # Finally: fs-uae exec if not -X
 if not args.noexec:
     print('\n\nStarting FS-UAE...')
-    fsuae_exec = [os.getenv('FSUAE', 'fs-uae'), fsuaeconf.name]
+    if args.libretro:
+        fsuae_exec = ['retroarch', '-L' , os.path.join(basedir, 'fsuae_libretro.so'), fsuaeconf.name]
+    else:
+        fsuae_exec = [os.getenv('FSUAE', 'fs-uae'), fsuaeconf.name]
     if args.stdoutlog:
         fsuae_exec += ['--stdout', '--log_flush=1']
     returncode = subprocess.call(fsuae_exec)
