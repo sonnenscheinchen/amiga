@@ -7,9 +7,9 @@ usage: amiga [-h] [-R config1 [config2 ...]] [-W config] [-S config]
              [-3 DF3] [-4 HD0] [-5 HD1] [-6 HD2] [-7 HD3] [-8 CDR]
              [-f FLOPPY [FLOPPY ...]] [-z ZIP [ZIP ...]] [-d] [--load {1-9}]
              [-a | -b | -c] [-t] [-n] [-l] [-w] [-g] [-i {0-10}] [-p {1-1000}]
-             [-x | -m chip fast slow] [-v] [-r] [-q] [-k] [-j] [-s [SHADER]]
-             [-o OPTS [OPTS ...]] [-u UAEOPTS [UAEOPTS ...]] [--uaelog]
-             [--log] [--stdoutlog] [--libretro]
+             [-x | -m chip fast slow] [-v] [-r] [-q] [-j] [-s [SHADER]]
+             [-o OPTS [OPTS ...]] [-u UAEOPTS [UAEOPTS ...]] [--whd WHD]
+             [--uaelog] [--log] [--stdoutlog] [--libretro]
              [DISK [DISK ...]]
 
 FS-UAE command line launcher and config utility
@@ -34,7 +34,6 @@ optional arguments:
   -v, --vsync           enable vsync, set twice for low lateny
   -r, --lowaccuracy     lower the emulation accuracy, can be set twice
   -q, --quietfloppy     quiet floppy drives
-  -k, --keepaspect      keep aspect ratio
   -j, --jit             try to use the JIT compiler for emulation
   -s [SHADER], --shader [SHADER]
                         use a pixel shader
@@ -78,6 +77,10 @@ Disk related options:
 
 Save State related options:
   --load {1-9}          load save state no.
+
+WHDLOAD options:
+  --whd WHD             launch WHDLOAD dir/archive (needs a valid WHDLOAD
+                        installation on HD0:)
 
 Log file options:
   --uaelog              Show UAE log file
