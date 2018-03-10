@@ -10,14 +10,16 @@ import shutil
 import re
 import zipfile
 from difflib import get_close_matches
-#import pdb
 
 try:
-    from amigaextractor import LhaExtractor
+    import lhafile
 except ImportError:
     NATIVE_LHA_SUPPORT = False
 else:
-    NATIVE_LHA_SUPPORT = True
+    if hasattr(lhafile.LhaFile, 'extractall'):
+        NATIVE_LHA_SUPPORT = True
+    else:
+        NATIVE_LHA_SUPPORT = False
 
 class GuruMeditationError(Exception):
     pass
@@ -382,18 +384,15 @@ class HardDrive(Base):
     def extract_lha(self, path):
         if not NATIVE_LHA_SUPPORT:
             return self.extract_with_binary(path, 'lha x', 'LHA')
-        lhadir = self.get_temp_dir(path, 'LHA')
         try:
-            lha = LhaExtractor(path)
-        except Exception:
-            ok = False
-            reason = 'python-lhafile error'
-        else:
-            ok, reason = lha.extract(dest=lhadir, verbose=True)
-        if not ok:
-            print('Error extracting LHA archive: {0}'.format(reason))
+            lha = lhafile.LhaFile(path)
+        except Exception as e:
+            print('Error extracting LHA archive: {0}'.format(e))
             print('Using fallback')
             return self.extract_with_binary(path, 'lha x', 'LHA')
+        else:
+            lhadir = self.get_temp_dir(path, 'LHA')
+            lha.extractall(path=lhadir, metadata='auto')
         return lhadir
 
     def extract_lzx(self, path):
