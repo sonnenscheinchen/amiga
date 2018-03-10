@@ -38,6 +38,26 @@ def sorted_nicely(l):
     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(l, key=alphanum_key)
 
+def set_memory(mem):
+    if mem.isdigit():
+        return int(mem)
+    if mem.isalpha():
+        return None
+    value, suffix = mem[:-1], mem[-1]
+    if not value.isdigit():
+        return None
+    suffix = suffix.lower()
+    multiplier = 1
+    if suffix == 'k':
+        pass
+    elif suffix == 'm':
+        multiplier = 1024
+    elif suffix == 'g':
+        multiplier = 1024 * 1024
+    else:
+        return None
+    return int(value) * multiplier
+
 
 class Base:
 
@@ -83,8 +103,7 @@ class Base:
 
 class Configuration(Base):
 
-    #DEFAULT_OPTIONS = ['--uae_sound_stereo_swap_paula=true']
-    DEFAULT_OPTIONS = []
+    BUGFIX_OPTIONS = []
 
     def __init__(self, config_dir):
         self.default_dir = 'Configurations'
@@ -318,7 +337,8 @@ class FloppyDrive(Base):
         [FloppyDrive.FLOPPYLIST.append(os.path.join(directory, i)) for i in guessed_floppies if i.endswith(extension)]
 
     def __del__(self):
-        self.FLOPPYLIST.remove(self.path)
+        if self.path in self.FLOPPYLIST:
+            self.FLOPPYLIST.remove(self.path)
 
 
 """
@@ -487,6 +507,7 @@ class WhdloadHardDrive(HardDrive):
             f.write('cd dh1:{0}\n'.format(game_dir))
             f.write('whdload {0} {1}\n'.format(slave_name, args))
 
+
 # predefined stuff
 #floppylist = []
 
@@ -553,10 +574,10 @@ parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 1x/2x/3x... scaling", action="count")
 parser.add_argument("-i", "--cpuidle", help="set cpu_idle value", type=int, choices=range(0, 11), metavar='{0-10}')
-parser.add_argument("-p", "--cpuspeed", help="set percentage of cpu speed", type=int, choices=range(1, 1000), metavar='{1-1000}')
+parser.add_argument("-p", "--cpuspeed", help="set percentage of cpu speed", type=int, choices=range(1, 1001), metavar='{1-1000}')
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
-pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
+pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=set_memory, metavar=('chip', 'fast', 'slow'))
 parser.add_argument("-v", "--vsync", help="enable vsync, set twice for low lateny", action="count")
 parser.add_argument("-r", "--lowaccuracy", help="lower the emulation accuracy, can be set twice", action='count')
 parser.add_argument("-q", "--quietfloppy", help="quiet floppy drives", action="store_true")
@@ -663,7 +684,6 @@ if args.xmem:
     if amodel == 'A500':
         config.set('chip_memory', '1024')
         config.set('fast_memory', '1024')
-        config.set('slow_memory', '0')
     elif amodel == 'A600':
         config.set('fast_memory', '4096')
     elif amodel == 'A1200':
@@ -676,24 +696,22 @@ if args.xmem:
 # direct memory setting
 if args.mem:
     chipmem, fastmem, slowmem = args.mem
-    if chipmem <= 4:
-        chipmem *= 1024
-    if chipmem % 256 != 0:
-        nicequit('Chip memory must be a multiple of 256.', 1)
+    if None in args.mem:
+        raise GuruMeditationError('Illegal memory format. Examples: 512; 512K, 4m, 1G...')
+    if chipmem not in (256, 512, 1024, 1536, 2048, 4096, 8192,):
+        nicequit('Invalid chip memory size.', 1)
     config.set('chip_memory', chipmem)
-    if fastmem <= 1024:
-        fastmem *= 1024
     if fastmem % 1024 != 0:
         nicequit('Fast memory must be a multiple of 1024.', 1)
-    if fastmem > 8192:
+    if fastmem > 8192 or chipmem > 2048:
         config.set('zorro_iii_memory', fastmem)
         config.set('fast_memory', '0')
     else:
         config.set('fast_memory', fastmem)
-    if slowmem <= 1:
-        slowmem *= 1024
     if slowmem % 256 != 0:
         nicequit('Slow memory must be a multiple of 256.', 1)
+    if slowmem > 1792:
+        nicequit('Slow memory can\'t be more than 1.8MB', 1)
     config.set('slow_memory', slowmem)
 
 # enable vsync
@@ -908,10 +926,9 @@ if not args.noexec:
     if args.libretro:
         fsuae_exec = ['retroarch', '-L', os.path.join(fspaths.BASE_DIR, 'fsuae_libretro.so'), config.config_file_name]
     else:
-        fsuae_exec = [fspaths.executable, config.config_file_name]
+        fsuae_exec = [fspaths.executable, config.config_file_name] + config.BUGFIX_OPTIONS
     if args.stdoutlog:
         fsuae_exec += ['--stdout', '--log_flush=1']
-    fsuae_exec += config.DEFAULT_OPTIONS
     print('exec:', fsuae_exec)
     returncode = subprocess.call(fsuae_exec)
 else:
