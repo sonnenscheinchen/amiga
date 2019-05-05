@@ -88,20 +88,6 @@ class Base:
             raise FileNotFoundError('Not found: ', path)
         return checked_path
 
-#class Shader(Base):
-#
-#    def __init__(self, shader_arg):
-#        self.default_dir = os.path.join('Data', 'Shaders')
-#        try:
-#            self.path = self.check_path(shader_arg, extension='.shader')
-#        except FileNotFoundError:
-#            builtin_shaders = self.get_builtin_shaders()
-#        else:
-#            return shader_arg
-#
-#    def get_builtin_shaders(self):
-#        pass
-
 
 class Configuration(Base):
 
@@ -190,11 +176,10 @@ class Configuration(Base):
         [self.set('floppy_drive_{0}'.format(
             floppyno), floppy) for floppyno, floppy in zip(range(4), floppylist)]
 
-    def __str__(self):
+    def print(self):
         print('\nConfiguration:')
         [print('{0} = {1}'.format(
             key, self.fsconfig[key])) for key in sorted(self.fsconfig.keys())]
-        return ''
 
 
 class FilesNDirs:
@@ -204,10 +189,6 @@ class FilesNDirs:
     def __init__(self):
         self.BASE_DIR = self.get_basedir()
         self._shader_files = None
-
-    #@property
-    #def base_dir(self):
-    #    return self._base_dir
 
     @property
     def executable(self):
@@ -298,7 +279,6 @@ class FloppyDrive(Base):
     ZIPPED_FLOPPY_DIR = None
 
     def __init__(self, path):
-        #self.tmpdir = None
         self.default_dir = 'Floppies'
         self.path = self.check_path(path)
 
@@ -343,31 +323,14 @@ class FloppyDrive(Base):
             self.FLOPPYLIST.remove(self.path)
 
 
-"""
-    @classmethod
-    def get_floppylist_config(cls):
-        cfg = {}
-        for num, floppy in enumerate(cls.FLOPPYLIST):
-            cfg['floppy_image_{0}'.format(num)] = floppy
-        return cfg
-
-    @classmethod
-    def add_floppies(cls, img):
-        cls.FLOPPYLIST.add(img)
-        #pass
-"""
-
-
 class HardDrive(Base):
 
     EXTENSIONS = ('.hdf', '.lha', '.rdb', '.vhd')
 
     def __init__(self, path):
         self.tmpdir = None
-        #self.type = 'hard'
         self.default_dir = 'Hard Drives'
         self.path = self.check_path(path, accept_directories=True)
-        #super().__init__(unit, path, accept_directories=True)
 
         path_lower = self.path.lower()
         if path_lower.endswith(('.lha', '.lzh')):
@@ -389,7 +352,7 @@ class HardDrive(Base):
         except Exception as e:
             print('Error extracting LHA archive: {0}'.format(e))
             print('Using fallback')
-            return self.extract_with_binary(path, 'lha x', 'LHA')
+            return self.extract_with_binary(path, '7z x', 'LHA')
         else:
             lhadir = self.get_temp_dir(path, 'LHA')
             lha.extractall(path=lhadir, metadata='auto')
@@ -405,7 +368,7 @@ class HardDrive(Base):
         return self.extract_with_binary(path, 'unzip', 'ZIP')
 
     def extract_7zip(self, path):
-        return self.extract_with_binary(path, '7za x', '7ZIP')
+        return self.extract_with_binary(path, '7z x', '7ZIP')
 
     def extract_with_binary(self, path, executable, name):
         if not shutil.which(executable.split(' ')[0]):
@@ -466,14 +429,12 @@ class WhdloadHardDrive(HardDrive):
             if len(part) > 2:
                 length = part[0]
                 arg = part[1:1 + length - 1]
-                #if b"***" in arg:
                 if arg.startswith(b'***'):
                     break
                 if not arg.lower().startswith((b';', b'(', b'slave=')):
                     args.append(arg.decode("ISO-8859-1"))
         print('args', args)
         return ' '.join(args)
-        #return 'PRELOAD ' + ' '.join(args)
 
     def find_icon(self, icon_name, slave):
         icon_name_lower = os.path.basename(icon_name).lower()
@@ -482,10 +443,6 @@ class WhdloadHardDrive(HardDrive):
         for i in dir_list:
             if i.lower() == icon_name_lower:
                 return os.path.join(slave_dir, i)
-        #for root, folders, files in os.walk(self.path):
-        #    for f in files:
-        #        if f.lower() == icon_name_lower:
-        #            return os.path.join(root, f)
         return None
 
     def create_startup_sequence(self, slave, args):
@@ -507,32 +464,13 @@ class WhdloadHardDrive(HardDrive):
             f.write('whdload {0} {1}\n'.format(slave_name, args))
 
 
-# predefined stuff
-#floppylist = []
-
-# get the fs-uae-base dir, setup others
-#basedir = get_basedir()
 fspaths = FilesNDirs()
 if fspaths.BASE_DIR is None:
     nicequit('Could not find fs-uae base directory.', 1)
 
-#basedir = fspaths.base_dir # FIXME
-
-#confdir = os.path.join(basedir, 'Configurations')
-#fsuae_exec = shutil.which('fs-uae')
 if fspaths.executable is None:
     nicequit('Could not find fs-uae executable.', 1)
-#datfile = os.path.join(install_prefix, 'share', 'fs-uae', 'fs-uae.dat')
-#shaderdir = os.path.join(basedir, 'Data', 'Shaders')
-#savestatesdir = os.path.join(basedir, 'Save States')
-#logdir = os.path.join(basedir, 'Cache', 'Logs')
-#romdir = os.path.join(basedir, 'Kickstarts')
 
-# set a config
-#global config
-#config = configparser.ConfigParser()
-#config['fs-uae'] = {}
-#fsuae = config['fs-uae']
 config = Configuration(fspaths.config_dir)
 
 
@@ -850,7 +788,6 @@ else:
 
 # whdload
 if args.whd:
-    #if config.get('hard_drive_0') is None:
     if config.get('hard_drive_0') is None:
         raise GuruMeditationError('Need a valid Whdload installation on HD0:')
     whd_hd = WhdloadHardDrive(args.whd)
@@ -917,7 +854,7 @@ if args.modifyconf:
     config.edit()
 
 # print config
-print(config)
+config.print()
 
 # Finally: fs-uae exec if not -X
 if not args.noexec:
