@@ -285,7 +285,10 @@ class FloppyDrive(Base):
         if self.path.lower().endswith('.zip'):
             self.extract_zipped_floppy(self.path)
         else:
-            FloppyDrive.FLOPPYLIST.append(self.path)
+            if self.path.lower().endswith(FloppyDrive.EXTENSIONS) or self.is_amiga_executable(self.path):
+                FloppyDrive.FLOPPYLIST.append(self.path)
+            else:
+                nicequit('{0} is not a valid floppy image.'.format(self.path), 2)
 
     def extract_zipped_floppy(self, path):
         if FloppyDrive.ZIPPED_FLOPPY_DIR is None:
@@ -293,7 +296,7 @@ class FloppyDrive(Base):
         try:
             z = zipfile.ZipFile(path)
         except zipfile.BadZipFile:
-            nicequit(path + ' is not a valid ZIP file.', 2)
+            nicequit('{0} is not a valid ZIP file.'.format(path), 2)
         for f in sorted_nicely(z.namelist()):
             fname = os.path.join(FloppyDrive.ZIPPED_FLOPPY_DIR, f.split("/")[-1])
             if len(FloppyDrive.ZIPFILELIST) > 19:
@@ -309,6 +312,12 @@ class FloppyDrive(Base):
             else:
                 print('skipping:', fname)
         z.close()
+
+    def is_amiga_executable(self, path):
+        if os.stat(path).st_size > 839120:
+            return False
+        with open(path, 'rb') as f:
+            return f.read(4) == b'\x00\x00\x03\xf3'
 
     @classmethod
     def guess_corresponding_images(cls, image):
@@ -346,7 +355,7 @@ class HardDrive(Base):
 
     def extract_lha(self, path):
         if not NATIVE_LHA_SUPPORT:
-            return self.extract_with_binary(path, 'lha x', 'LHA')
+            return self.extract_with_binary(path, '7z x', 'LHA')
         try:
             lha = lhafile.LhaFile(path)
         except Exception as e:
