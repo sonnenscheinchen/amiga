@@ -9,16 +9,20 @@ import sys
 import shutil
 import re
 import zipfile
-from time import sleep
 from difflib import get_close_matches
 
 try:
-    from amigaextractor import LhaExtractor
+    import lhafile
 except ImportError:
-    lha_support = False
+    NATIVE_LHA_SUPPORT = False
 else:
-    lha_support = True
+    if hasattr(lhafile.LhaFile, 'extractall'):
+        NATIVE_LHA_SUPPORT = True
+    else:
+        NATIVE_LHA_SUPPORT = False
 
+class GuruMeditationError(Exception):
+    pass
 
 def nicequit(msg='', errno=0):
     """clean up and print errors to stderr"""
@@ -26,89 +30,7 @@ def nicequit(msg='', errno=0):
         print(msg, file=sys.stderr)
     else:
         print(msg)
-    quit(code=errno)
-
-
-def get_basedir():
-    '''return fs-uae base dir'''
-    if os.path.isdir(str(os.environ.get('FS_UAE_BASE_DIR'))):
-        return os.environ['FS_UAE_BASE_DIR']
-    basedirconf = os.path.expanduser('~/.config/fs-uae/base-dir')
-    if os.path.isfile(basedirconf):
-        with open(basedirconf) as f:
-            path = f.readline().strip()
-        if os.path.isdir(path):
-            return path
-    basedirconf = os.path.expanduser('~/.config/fs-uae/fs-uae.conf')
-    if os.path.isfile(basedirconf):
-        with open(basedirconf) as f:
-            for line in f:
-                if line.split('=')[0].strip() == 'base_dir':
-                    path = line.split('=')[1].strip()
-                    if os.path.isdir(path):
-                        return path
-    try:
-        docdir = subprocess.check_output(
-            ['xdg-user-dir', 'DOCUMENTS']).decode().strip(os.linesep)
-        path = os.path.join(docdir, 'FS-UAE')
-        if os.path.isdir(path):
-            return path
-    except:
-        path = os.path.join(os.path.expanduser('~/FS-UAE'))
-        if os.path.isdir(path):
-            return path
-    return None
-
-
-def getrealfile(name, ndir, fext):
-    """return a real filename in current dir or in specific fs-uae dir"""
-    if os.sep in name and os.path.isfile(name):
-        return name
-    elif not os.sep in name and os.path.isfile(os.path.join(ndir, name)):
-        return os.path.join(ndir, name)
-    elif not os.sep in name and os.path.isfile(os.path.join(ndir, name + fext)):
-        return os.path.join(ndir, name + fext)
-
-
-def useopt(key, value):
-    config['fs-uae'][key] = value
-
-
-def geteditor():
-    """set a text editor"""
-    #TODO: use vim/nano... as fallback
-    editor = os.getenv('EDITOR')
-    if not editor:
-        print('Environment variable $EDITOR is not defined.')
-        nicequit('Please use \"export EDITOR=youreditor\" to edit the config.', 1)
-    else:
-        return editor
-
-
-def handlehdd(hdarg):
-    """return an argument for HDx:"""
-    if os.path.isdir(hdarg):
-        return hdarg
-    elif os.path.isfile(hdarg):
-        if hdarg.lower().endswith('.lha'):
-            if not lha_support:
-                nicequit('LHA archives are not supported.', 1)
-            global lhatmpdir
-            lhatmpdir = tempfile.TemporaryDirectory(prefix='LHA')
-            lhabasename = os.path.basename(hdarg)
-            lhadir = os.path.join(lhatmpdir.name, lhabasename.lower().rsplit('.lha')[0])
-            print('Extracting LHA archive to ' + lhadir)
-            print('Don\'t put any files in here! They will be deleted.')
-            os.mkdir(lhadir)
-            lha = LhaExtractor(hdarg)
-            ok, reason = lha.extract(dest=lhadir, verbose=True)
-            if not ok:
-                nicequit('Error extracting LHA archive: '.format(reason), 1)
-            return lhadir
-        else:
-            return hdarg
-    else:
-        nicequit('Not a valid file or directory: ' + hdarg, 1)
+    sys.exit(errno)
 
 
 def sorted_nicely(l):
@@ -118,49 +40,439 @@ def sorted_nicely(l):
     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
     return sorted(l, key=alphanum_key)
 
+def set_memory(mem):
+    if mem.isdigit():
+        return int(mem)
+    if mem.isalpha():
+        return None
+    value, suffix = mem[:-1], mem[-1]
+    if not value.isdigit():
+        return None
+    suffix = suffix.lower()
+    multiplier = 1
+    if suffix == 'k':
+        pass
+    elif suffix == 'm':
+        multiplier = 1024
+    elif suffix == 'g':
+        multiplier = 1024 * 1024
+    else:
+        return None
+    return int(value) * multiplier
 
-def assignfromfloppylist(flist):
-    [useopt('floppy_drive_{0}'.format(
-        floppyno), floppy) for floppyno, floppy in zip(range(4), flist)]
+
+class Base:
+
+    def get_temp_dir(self, path, prefix):
+        self.tmpdir = tempfile.TemporaryDirectory(prefix=prefix)
+        name = os.path.basename(os.path.splitext(path)[0])
+        tdir = os.path.join(self.tmpdir.name, name)
+        print('Extracting files to ', tdir)
+        print('Don\'t put any files in here! They will be deleted.')
+        os.makedirs(tdir, exist_ok=True)
+        return tdir
+
+    def check_path(self, path, accept_directories=False, extension=''):
+        checked_path = None
+        if os.path.isfile(path):
+            return path
+        p = os.path.join(fspaths.BASE_DIR, self.default_dir, path + extension)
+        if os.path.isfile(p):
+            checked_path = p
+        if checked_path is None and accept_directories is True:
+            if os.path.isdir(path):
+                checked_path = path
+            elif os.path.isdir(os.path.join(fspaths.BASE_DIR, self.default_dir, path)):
+                checked_path = path
+        if checked_path is None:
+            raise FileNotFoundError('Not found: ', path)
+        return checked_path
 
 
-def getlog(log, show=True):
-    with open(log) as f:
-        if show:
-            for line in f:
-                print(line, end='')
+class Configuration(Base):
+
+    BUGFIX_OPTIONS = []
+
+    def __init__(self, config_dir):
+        self.default_dir = 'Configurations'
+        self.config_dir = config_dir
+        self.config = configparser.ConfigParser()
+        self.config['fs-uae'] = {}
+        self.fsconfig = self.config['fs-uae']
+        self.config_file_name = None
+
+    def set(self, key, value):
+        self.fsconfig[key] = str(value)
+
+    def get(self, key, fallback=None):
+        if key in self.fsconfig.keys():
+            return self.fsconfig[key]
+        return fallback
+
+    def list(self):
+        for conf in os.listdir(self.config_dir):
+            print(conf.rsplit('.fs-uae')[0], end='; ')
+
+    def show(self, config_file):
+        showconf = self.check_path(config_file, extension='.fs-uae')
+        if showconf and showconf.endswith('.fs-uae'):
+            try:
+                with open(showconf) as f:
+                    for line in f:
+                        print(line, end='')
+            except OSError:
+                return('Could not open ' + showconf, 1)
         else:
-            options = []
-            for line in f:
-                options.append(line.strip().split('=')[0])
-            return options
+            return (args.showconf + ' is possibly not a fs-uae config', 1)
+        return '', 0
 
-# predefined stuff
-fexts = ('.adf', '.dms', '.adz', '.ipf', '.zip')
-hexts = ('.hdf', '.lha', '.rdb', '.vhd')
-floppylist = []
+    def edit(self, config_file=None):
+        if config_file is None:
+            config_file = self.config_file_name
+        editor = os.getenv('EDITOR')
+        if not editor:
+            return 'Environment variable $EDITOR is not defined.', 1
+        editconf = self.check_path(config_file, extension='.fs-uae')
+        if editconf and editconf.endswith('.fs-uae'):
+            subprocess.call([editor, editconf])
+            return '', 0
+        return 'Could not edit ' + config_file, 1
 
-# get the fs-uae-base dir, setup others
-basedir = get_basedir()
-if not basedir:
+    def delete(self, config_file):
+        delconf = self.check_path(config_file, extension='.fs-uae')
+        qdel = input('Do you really want to delete {0} [y/N]? >>  '.format(delconf))
+        if qdel == 'y':
+            try:
+                os.remove(delconf)
+                return delconf + ' has been deleted.', 0
+            except OSError:
+                return 'Could not delete ' + delconf, 1
+        else:
+            return delconf + ' has NOT been deleted.', 0
+
+    def read(self, config_files):
+        for conf in config_files:
+            readconf = self.check_path(conf, extension='.fs-uae')
+            if readconf and readconf.endswith('.fs-uae'):
+                try:
+                    self.config.read_file(open(readconf)) # FIXME: use all sections
+                except:
+                    return 'Could not read configfile: ' + option, 1
+            else:
+                return 'Config not found: ' + option, 1
+
+    def write(self, config_file=None):
+        if config_file is None:
+            self.temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.fs-uae', prefix='CONF')
+            self.config.write(self.temp_file)
+            self.temp_file.flush()
+            self.config_file_name = self.temp_file.name
+        else:
+            self.config_file_name = os.path.join(self.config_dir, config_file + '.fs-uae')
+            with open(self.config_file_name, 'wt') as f:
+                self.config.write(f)
+
+    def assign_from_floppylist(self, floppylist):
+        [self.set('floppy_drive_{0}'.format(
+            floppyno), floppy) for floppyno, floppy in zip(range(4), floppylist)]
+
+    def print(self):
+        print('\nConfiguration:')
+        [print('{0} = {1}'.format(
+            key, self.fsconfig[key])) for key in sorted(self.fsconfig.keys())]
+
+
+class FilesNDirs:
+
+    BASE_DIR = None
+
+    def __init__(self):
+        self.BASE_DIR = self.get_basedir()
+        self._shader_files = None
+
+    @property
+    def executable(self):
+        executable = os.getenv('FSUAE', 'fs-uae')
+        return shutil.which(executable)
+
+    @property
+    def data_file(self):
+        install_prefix = os.path.normpath(
+            os.path.join(os.path.dirname(self.executable), '..'))
+        return os.path.join(install_prefix, 'share', 'fs-uae', 'fs-uae.dat')
+
+    @property
+    def log_file(self):
+        log_file = os.path.join(self.BASE_DIR, 'Cache', 'Logs', 'fs-uae.log.txt')
+        return log_file if os.path.isfile(log_file) else None
+
+    @property
+    def uaelog_file(self):
+        uaelog_file = os.path.join(self.BASE_DIR, 'Cache', 'Logs', 'debug.uae')
+        return uaelog_file if os.path.isfile(uaelog_file) else None
+
+    @property
+    def savestates_dir(self):
+        return os.path.join(self.BASE_DIR, 'Save States')
+
+    @property
+    def shader_dir(self):
+        shader_dir = os.path.join(self.BASE_DIR, 'Data', 'Shaders')
+        return shader_dir if os.path.isdir(shader_dir) else None
+
+    @property
+    def config_dir(self):
+        config_dir = os.path.join(self.BASE_DIR, 'Configurations')
+        return config_dir if os.path.isdir(config_dir) else None
+
+    @property
+    def shader_files(self):
+        if self._shader_files is not None:
+            return self._shader_files
+        if self.shader_dir is not None:
+            shaderlist = set(os.listdir(self.shader_dir))
+        else:
+            shaderlist = set()
+        with zipfile.ZipFile(self.data_file) as dat:
+            for s in dat.namelist():
+                if len(s) > 21 and s.startswith('share/fs-uae/shaders/'):
+                    shaderlist.add(s[21:])
+        self._shader_files = sorted(list(shaderlist))
+        return self._shader_files
+
+    def get_basedir(self):
+        '''return fs-uae base dir'''
+        if os.path.isdir(str(os.environ.get('FS_UAE_BASE_DIR'))):
+            return os.environ['FS_UAE_BASE_DIR']
+        basedirconf = os.path.expanduser('~/.config/fs-uae/base-dir')
+        if os.path.isfile(basedirconf):
+            with open(basedirconf) as f:
+                path = f.readline().strip()
+            if os.path.isdir(path):
+                return path
+        basedirconf = os.path.expanduser('~/.config/fs-uae/fs-uae.conf')
+        if os.path.isfile(basedirconf):
+            with open(basedirconf) as f:
+                for line in f:
+                    if line.split('=')[0].strip() == 'base_dir':
+                        path = line.split('=')[1].strip()
+                        if os.path.isdir(path):
+                            return path
+        try:
+            docdir = subprocess.check_output(
+                ['xdg-user-dir', 'DOCUMENTS']).decode().strip(os.linesep)
+            path = os.path.join(docdir, 'FS-UAE')
+            if os.path.isdir(path):
+                return path
+        except Exception:
+            path = os.path.join(os.path.expanduser('~/FS-UAE'))
+            if os.path.isdir(path):
+                return path
+        return None
+
+
+class FloppyDrive(Base):
+
+    EXTENSIONS = ('.adf', '.dms', '.adz', '.ipf', '.zip')
+    FLOPPYLIST = []
+    ZIPFILELIST = []
+    ZIPPED_FLOPPY_DIR = None
+
+    def __init__(self, path):
+        self.default_dir = 'Floppies'
+        self.path = self.check_path(path)
+
+        if self.path.lower().endswith('.zip'):
+            self.extract_zipped_floppy(self.path)
+        else:
+            FloppyDrive.FLOPPYLIST.append(self.path)
+
+    def extract_zipped_floppy(self, path):
+        if FloppyDrive.ZIPPED_FLOPPY_DIR is None:
+            FloppyDrive.ZIPPED_FLOPPY_DIR = self.get_temp_dir('', 'ZIP')
+        try:
+            z = zipfile.ZipFile(path)
+        except zipfile.BadZipFile:
+            nicequit(path + ' is not a valid ZIP file.', 2)
+        for f in sorted_nicely(z.namelist()):
+            fname = os.path.join(FloppyDrive.ZIPPED_FLOPPY_DIR, f.split("/")[-1])
+            if len(FloppyDrive.ZIPFILELIST) > 19:
+                print('WARNING: Too many floppy images in zip file. You can only use up to 20.')
+                break
+            elif f.lower().endswith(FloppyDrive.EXTENSIONS) and z.getinfo(f).file_size <= 2000000:
+                data = z.read(f)
+                FloppyDrive.FLOPPYLIST.append(fname)
+                FloppyDrive.ZIPFILELIST.append(fname)
+                with open(fname, "wb") as mfile:
+                    mfile.write(data)
+                print('using image:', fname)
+            else:
+                print('skipping:', fname)
+        z.close()
+
+    @classmethod
+    def guess_corresponding_images(cls, image):
+        directory, name = os.path.split(image)
+        dummy, extension = os.path.splitext(name)
+        dir_list = os.listdir(os.path.realpath(directory))
+        guessed_floppies = sorted_nicely(get_close_matches(name, dir_list, n=11, cutoff=0.8))
+        [FloppyDrive.FLOPPYLIST.append(os.path.join(directory, i)) for i in guessed_floppies if i.endswith(extension)]
+
+    def __del__(self):
+        if self.path in self.FLOPPYLIST:
+            self.FLOPPYLIST.remove(self.path)
+
+
+class HardDrive(Base):
+
+    EXTENSIONS = ('.hdf', '.lha', '.rdb', '.vhd')
+
+    def __init__(self, path):
+        self.tmpdir = None
+        self.default_dir = 'Hard Drives'
+        self.path = self.check_path(path, accept_directories=True)
+
+        path_lower = self.path.lower()
+        if path_lower.endswith(('.lha', '.lzh')):
+            self.path = self.extract_lha(self.path)
+        elif path_lower.endswith('.lzx'):
+            self.path = self.extract_lzx(self.path)
+        elif path_lower.endswith('.zip'):
+            self.path = self.extract_zip(self.path)
+        elif path_lower.endswith('.rar'):
+            self.path = self.extract_rar(self.path)
+        elif path_lower.endswith('.7z'):
+            self.path = self.extract_7zip(self.path)
+
+    def extract_lha(self, path):
+        if not NATIVE_LHA_SUPPORT:
+            return self.extract_with_binary(path, 'lha x', 'LHA')
+        try:
+            lha = lhafile.LhaFile(path)
+        except Exception as e:
+            print('Error extracting LHA archive: {0}'.format(e))
+            print('Using fallback')
+            return self.extract_with_binary(path, '7z x', 'LHA')
+        else:
+            lhadir = self.get_temp_dir(path, 'LHA')
+            lha.extractall(path=lhadir, metadata='auto')
+        return lhadir
+
+    def extract_lzx(self, path):
+        return self.extract_with_binary(path, 'unlzx', 'LZX')
+
+    def extract_rar(self, path):
+        return self.extract_with_binary(path, 'unrar x', 'RAR')
+
+    def extract_zip(self, path):
+        return self.extract_with_binary(path, 'unzip', 'ZIP')
+
+    def extract_7zip(self, path):
+        return self.extract_with_binary(path, '7z x', '7ZIP')
+
+    def extract_with_binary(self, path, executable, name):
+        if not shutil.which(executable.split(' ')[0]):
+            raise RuntimeError('{0} archives are not supported.'.format(name))
+        archive_dir = self.get_temp_dir(path, name)
+        with subprocess.Popen(executable.split(' ') + [os.path.realpath(path)], cwd=archive_dir) as proc:
+            returncode = proc.wait()
+        if returncode > 0:
+            raise RuntimeError('Error extracting {0} archive'.format(name))
+        return archive_dir
+
+    def __del__(self):
+        if self.tmpdir is not None:
+            del self.tmpdir
+
+
+class WhdloadHardDrive(HardDrive):
+
+    def __init__(self, path):
+        super().__init__(path)
+        if not os.path.isdir(self.path):
+            raise GuruMeditationError('Hardfiles are not supported.')
+        if self.tmpdir is None:
+            print('old path', self.path)
+            self.get_temp_dir('', 'HDD')
+            new_path = os.path.join(self.tmpdir.name, os.path.basename(self.path))
+            #os.makedirs(new_path)
+            shutil.copytree(self.path, new_path)
+            self.path = new_path
+            print('new path', self.path)
+        slave = self.find_slave()
+        if slave is None:
+            raise GuruMeditationError('No whdload slave found in ' + self.path)
+        args = self.get_args_from_icon(slave)
+        self.create_startup_sequence(slave, args)
+
+    def find_slave(self):
+        for root, folders, files in os.walk(self.path):
+            for f in files:
+                if f.lower().endswith('.slave'):
+                    return os.path.join(root, f)
+        return None
+
+    def get_args_from_icon(self, slave):
+        name, ext = os.path.splitext(slave)
+        print(name + '.info')
+        icon = self.find_icon(name + '.info', slave)
+        print(icon)
+        if icon is None:
+            return 'PrElOaD'
+        with open(icon, 'rb') as f:
+            data = f.read()
+        index = data.lower().find(b"slave=") - 1
+        args = []
+        parts = data[index:].split(b"\x00\x00\x00\x00")
+        #print(parts)
+        for part in parts[:]:
+            if len(part) > 2:
+                length = part[0]
+                arg = part[1:1 + length - 1]
+                if arg.startswith(b'***'):
+                    break
+                if not arg.lower().startswith((b';', b'(', b'slave=')):
+                    args.append(arg.decode("ISO-8859-1"))
+        print('args', args)
+        return ' '.join(args)
+
+    def find_icon(self, icon_name, slave):
+        icon_name_lower = os.path.basename(icon_name).lower()
+        slave_dir = os.path.dirname(slave)
+        dir_list = os.listdir(slave_dir)
+        for i in dir_list:
+            if i.lower() == icon_name_lower:
+                return os.path.join(slave_dir, i)
+        return None
+
+    def create_startup_sequence(self, slave, args):
+        s_dir = os.path.join(self.path, 's')
+        if not os.path.isdir(s_dir):
+            s_dir = os.path.join(self.path, 'S')
+        if not os.path.isdir(s_dir):
+            os.makedirs(s_dir)
+        ss = os.path.join(s_dir, 'startup-sequence')
+        game_dir = os.path.dirname(os.path.relpath(slave, self.path))
+        slave_name = os.path.basename(slave)
+        with open(ss, 'wt', encoding='ISO-8859-1') as f:
+            f.write('dh0:c/assign c: dh0:c\n')
+            f.write('assign s: dh0:s\n')
+            f.write('assign devs: dh0:devs\n')
+            f.write('assign libs: dh0:libs\n')
+            f.write('setpatch\n')
+            f.write('cd dh1:{0}\n'.format(game_dir))
+            f.write('whdload {0} {1}\n'.format(slave_name, args))
+
+
+fspaths = FilesNDirs()
+if fspaths.BASE_DIR is None:
     nicequit('Could not find fs-uae base directory.', 1)
-confdir = os.path.join(basedir, 'Configurations')
-fsuae_exec = shutil.which('fs-uae')
-if not fsuae_exec:
-    nicequit('Could not find fs-uae executable.', 1)
-install_prefix = os.path.normpath(
-    os.path.join(os.path.dirname(fsuae_exec), '..'))
-datfile = os.path.join(install_prefix, 'share', 'fs-uae', 'fs-uae.dat')
-shaderdir = os.path.join(basedir, 'Data', 'Shaders')
-savestatesdir = os.path.join(basedir, 'Save States')
-logdir = os.path.join(basedir, 'Cache', 'Logs')
-romdir = os.path.join(basedir, 'Kickstarts')
 
-# set a config
-global config
-config = configparser.ConfigParser()
-config['fs-uae'] = {}
-fsuae = config['fs-uae']
+if fspaths.executable is None:
+    nicequit('Could not find fs-uae executable.', 1)
+
+config = Configuration(fspaths.config_dir)
+
 
 # parse command line arguments
 parser = argparse.ArgumentParser(description="FS-UAE command line launcher and config utility")
@@ -171,21 +483,21 @@ configstuff.add_argument("-S", "--showconf", help="show a saved config file", me
 configstuff.add_argument("-E", "--editconf", help="edit a saved config file", metavar='config')
 configstuff.add_argument("-D", "--delconf", help="delete a saved config file", metavar='config')
 configstuff.add_argument("-M", "--modifyconf", help="edit config before executing fs-uae", action="store_true")
-configstuff.add_argument("-L", "--listconf", help="list config files in config dir", action="store_true")
+configstuff.add_argument("-L", "--listconf", help="list config files in config dir", action='store_true')
 configstuff.add_argument("-X", "--noexec", help="don\'t execute fs-uae", action="store_true")
 drive = parser.add_argument_group('Disk related options')
 drive.add_argument("somedisk", help="use any image/directory for any drive (will overwrite other arguments)", nargs='*', metavar='DISK')
-drive.add_argument("-0", "--df0", help="use floppy image for DF0", type=argparse.FileType('r'))
-drive.add_argument("-1", "--df1", help="use floppy image for DF1", type=argparse.FileType('r'))
-drive.add_argument("-2", "--df2", help="use floppy image for DF2", type=argparse.FileType('r'))
-drive.add_argument("-3", "--df3", help="use floppy image for DF3", type=argparse.FileType('r'))
-drive.add_argument("-4", "--hd0", help="use HDF/RDB/ZIP/LHA-file or directory for HD0")
-drive.add_argument("-5", "--hd1", help="use HDF/RDB/ZIP/LHA-file or directory for HD1")
-drive.add_argument("-6", "--hd2", help="use HDF/RDB/ZIP/LHA-file or directory for HD2")
-drive.add_argument("-7", "--hd3", help="use HDF/RDB/ZIP/LHA-file or directory for HD3")
+drive.add_argument("-0", "--df0", help="use floppy image for DF0", type=FloppyDrive)
+drive.add_argument("-1", "--df1", help="use floppy image for DF1", type=FloppyDrive)
+drive.add_argument("-2", "--df2", help="use floppy image for DF2", type=FloppyDrive)
+drive.add_argument("-3", "--df3", help="use floppy image for DF3", type=FloppyDrive)
+drive.add_argument("-4", "--hd0", help="use HDF/RDB/ZIP/LHA-file or directory for HD0", type=HardDrive)
+drive.add_argument("-5", "--hd1", help="use HDF/RDB/ZIP/LHA-file or directory for HD1", type=HardDrive)
+drive.add_argument("-6", "--hd2", help="use HDF/RDB/ZIP/LHA-file or directory for HD2", type=HardDrive)
+drive.add_argument("-7", "--hd3", help="use HDF/RDB/ZIP/LHA-file or directory for HD3", type=HardDrive)
 drive.add_argument("-8", "--cdr", help="use .ISO/.CUE for cd-rom emulation", type=argparse.FileType('r'))
 drive.add_argument("-f", "--floppy", help="set additional floppy image(s)", nargs='+', type=argparse.FileType('r'))
-drive.add_argument("-z", "--zip", help="use floppy images in archive for disk drives", nargs='+', type=argparse.FileType('r'))
+drive.add_argument("-z", "--zip", help="use floppy images in archive for disk drives", nargs='+', type=FloppyDrive)
 drive.add_argument("-d", "--auto", help="guess corresponding floppies based on DF0", action='store_true')
 state = parser.add_argument_group('Save State related options')
 state.add_argument("--load", help="load save state no.", type=int, choices=range(1, 10), metavar='{1-9}')
@@ -199,18 +511,19 @@ parser.add_argument("-l", "--lowres", help="use low resolution, can be set twice
 parser.add_argument("-w", "--writeable", help="use writeable floppy images", action="store_true")
 parser.add_argument("-g", "--scale", help="use fixed 1x/2x/3x... scaling", action="count")
 parser.add_argument("-i", "--cpuidle", help="set cpu_idle value", type=int, choices=range(0, 11), metavar='{0-10}')
-parser.add_argument("-p", "--cpuspeed", help="set percentage of cpu speed", type=int, choices=range(1, 1000), metavar='{1-1000}')
+parser.add_argument("-p", "--cpuspeed", help="set percentage of cpu speed", type=int, choices=range(1, 1001), metavar='{1-1000}')
 pmem = parser.add_mutually_exclusive_group()
 pmem.add_argument("-x", "--xmem", help="use X-tra memory", action="store_true")
-pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=int, metavar=('chip', 'fast', 'slow'))
+pmem.add_argument("-m", "--mem", help="specify chip, fast and slow mem directly", nargs=3, type=set_memory, metavar=('chip', 'fast', 'slow'))
 parser.add_argument("-v", "--vsync", help="enable vsync, set twice for low lateny", action="count")
 parser.add_argument("-r", "--lowaccuracy", help="lower the emulation accuracy, can be set twice", action='count')
 parser.add_argument("-q", "--quietfloppy", help="quiet floppy drives", action="store_true")
-parser.add_argument("-k", "--keepaspect", help="keep aspect ratio", action="store_true")
 parser.add_argument("-j", "--jit", help="try to use the JIT compiler for emulation", action="store_true")
 parser.add_argument("-s", "--shader", help="use a pixel shader", nargs='?', const=True)
 parser.add_argument("-o", "--opts", help="set custom fs-uae options (KEY=VALUE)", nargs='+')
 parser.add_argument("-u", "--uaeopts", help="set custom UNSUPPORTED uae_* options (KEY=VALUE)", nargs='+')
+whdloadarg = parser.add_argument_group('WHDLOAD options')
+whdloadarg.add_argument("--whd", help="launch WHDLOAD dir/archive (needs a valid WHDLOAD installation on HD0:)")
 logarg = parser.add_argument_group('Log file options')
 logarg.add_argument("--uaelog", help="Show UAE log file", action="store_true")
 logarg.add_argument("--log", help="Show fs-uae log file", action="store_true")
@@ -222,353 +535,279 @@ args = parser.parse_args()
 
 # show uae log file
 if args.uaelog:
-    logfile = os.path.join(logdir, 'debug.uae')
-    getlog(logfile)
+    with open(fspaths.uaelog_file) as f:
+        for line in f:
+            print(line, end='')
     nicequit()
 
 # show fs-uae log file
 if args.log:
-    logfile = os.path.join(logdir, 'fs-uae.log.txt')
-    getlog(logfile)
+    with open(fspaths.log_file) as f:
+        for line in f:
+            print(line, end='')
     nicequit()
 
 # list configs
 if args.listconf:
-    for conf in os.listdir(path=confdir):
-        print(conf.rsplit('.fs-uae')[0], end='; ')
+    config.list()
     nicequit()
 
 # show config
 if args.showconf:
-    showconf = getrealfile(args.showconf, confdir, '.fs-uae')
-    if showconf and showconf.endswith('.fs-uae'):
-        try:
-            sconf = open(showconf)
-        except:
-            nicequit('Could not open ' + showconf, 1)
-        for line in sconf:
-            print(line, end='')
-        sconf.close()
-        nicequit()
-    else:
-        nicequit(args.showconf + ' is possibly not a fs-uae config', 1)
+    nicequit(config.show(args.showconf))
 
 # edit config
 if args.editconf:
-    editor = geteditor()
-    editconf = getrealfile(args.editconf, confdir, '.fs-uae')
-    if editconf and editconf.endswith('.fs-uae'):
-        subprocess.call([editor, editconf])
-        nicequit()
-    else:
-        nicequit('Could not edit ' + args.editconf, 1)
+    nicequit(config.edit(args.editconf))
 
 # delete config
 if args.delconf:
-    delconf = getrealfile(args.delconf, confdir, '.fs-uae')
-    if delconf:
-        qdel = input('Do you really want to delete ' + str(delconf) + ' [y/N]? >>  ')
-        if str(qdel) == 'y':
-            try:
-                os.remove(delconf)
-                nicequit(delconf + ' has been deleted.', 0)
-            except OSError:
-                nicequit('Could not delete ' + delconf, 1)
-        else:
-            nicequit(delconf + ' has NOT been deleted.', 0)
-    else:
-        nicequit('Config not found: ' + args.delconf, 1)
+    nicequit(config.delete(args.delconf))
 
 # read from config file(s)
 if args.readconf:
-    for option in args.readconf:
-        readconf = getrealfile(option, confdir, '.fs-uae')
-        if readconf and readconf.endswith('.fs-uae'):
-            try:
-                config.read_file(open(readconf))
-            except:
-                nicequit('Could not read configfile: ' + option, 1)
-        else:
-            nicequit('Config not found: ' + option, 1)
-
+    config.read(args.readconf)
 
 # Amiga model specific setup
 if args.a500:
     if args.a500 == 1:
-        useopt('amiga_model', 'A500')
+        config.set('amiga_model', 'A500')
     elif args.a500 == 2:
-        useopt('amiga_model', 'A600')
+        config.set('amiga_model', 'A600')
 elif args.a1200:
     if args.a1200 == 1:
-        useopt('amiga_model', 'A1200')
+        config.set('amiga_model', 'A1200')
     elif args.a1200 == 2:
-        useopt('amiga_model', 'CD32')
+        config.set('amiga_model', 'CD32')
 elif args.a4000:
     if args.a4000 == 1:
-        useopt('amiga_model', 'A4000/040')
-        useopt('graphics_card', 'uaegfx')
-        useopt('bsdsocket_library', '1')
+        config.set('amiga_model', 'A4000/040')
+        config.set('graphics_card', 'uaegfx')
+        config.set('bsdsocket_library', '1')
+        config.set('sound_card', 'toccata')
     elif args.a4000 == 2:
-        useopt('amiga_model', 'A4000/PPC')
+        config.set('amiga_model', 'A4000/PPC')
     elif args.a4000 == 3:
-        useopt('amiga_model', 'A4000/OS4')
+        config.set('amiga_model', 'A4000/OS4')
 
 # floppy speed setup
 if args.turbofloppy == 1:
-    useopt('floppy_drive_speed', '200')
+    config.set('floppy_drive_speed', '200')
 elif args.turbofloppy == 2:
-    useopt('floppy_drive_speed', '800')
+    config.set('floppy_drive_speed', '800')
 elif args.turbofloppy == 3:
-    useopt('floppy_drive_speed', '0')
+    config.set('floppy_drive_speed', '0')
 
 # writebale floppy
 if args.writeable:
-    useopt('writable_floppy_images', '1')
+    config.set('writable_floppy_images', '1')
 
 # lowres an line-doubling
 if args.lowres == 1:
-    useopt('line_doubling', '0')
-    useopt('low_resolution', '0')
+    config.set('line_doubling', '0')
+    config.set('low_resolution', '0')
 elif args.lowres == 2:
-    useopt('line_doubling', '0')
-    useopt('low_resolution', '1')
+    config.set('line_doubling', '0')
+    config.set('low_resolution', '1')
 
 # fixed scaling
 if args.scale:
-    useopt('scale_x', str(args.scale))
-    useopt('scale_y', str(args.scale))
+    config.set('scale_x', args.scale)
+    config.set('scale_y', args.scale)
 
 # setup more memory
 if args.xmem:
-    amodel = fsuae.get('amiga_model', 'A500')
+    amodel = config.get('amiga_model', 'A500')
     if amodel == 'A500':
-        useopt('chip_memory', '1024')
-        useopt('fast_memory', '1024')
-        useopt('slow_memory', '0')
+        config.set('chip_memory', '1024')
+        config.set('fast_memory', '1024')
     elif amodel == 'A600':
-        useopt('fast_memory', '4096')
+        config.set('fast_memory', '4096')
     elif amodel == 'A1200':
-        useopt('fast_memory', '8192')
+        config.set('fast_memory', '8192')
     elif amodel == 'A4000/040':
-        useopt('zorro_iii_memory', '131072')
+        config.set('zorro_iii_memory', '131072')
     else:
         print('WARNING: Extra memory not activated.')
 
 # direct memory setting
 if args.mem:
     chipmem, fastmem, slowmem = args.mem
-    if chipmem <= 4:
-        chipmem *= 1024
-    if chipmem % 256 != 0:
-        nicequit('Chip memory must be a multiple of 256.', 1)
-    useopt('chip_memory', str(chipmem))
-    if fastmem <= 1024:
-        fastmem *= 1024
+    if None in args.mem:
+        raise GuruMeditationError('Illegal memory format. Examples: 512; 512K, 4m, 1G...')
+    if chipmem not in (256, 512, 1024, 1536, 2048, 4096, 8192,):
+        nicequit('Invalid chip memory size.', 1)
+    config.set('chip_memory', chipmem)
     if fastmem % 1024 != 0:
         nicequit('Fast memory must be a multiple of 1024.', 1)
-    if fastmem > 8192:
-        useopt('zorro_iii_memory', str(fastmem))
-        useopt('fast_memory', '0')
+    if fastmem > 8192 or chipmem > 2048:
+        config.set('zorro_iii_memory', fastmem)
+        config.set('fast_memory', '0')
     else:
-        useopt('fast_memory', str(fastmem))
-    if slowmem <= 1:
-        slowmem *= 1024
+        config.set('fast_memory', fastmem)
     if slowmem % 256 != 0:
         nicequit('Slow memory must be a multiple of 256.', 1)
-    useopt('slow_memory', str(slowmem))
+    if slowmem > 1792:
+        nicequit('Slow memory can\'t be more than 1.8MB', 1)
+    config.set('slow_memory', slowmem)
 
 # enable vsync
 if args.vsync == 1:
-    useopt('video_sync', '1')
-    useopt('low_latency_vsync', '0')
+    config.set('video_sync', '1')
+    config.set('low_latency_vsync', '0')
 elif args.vsync == 2:
-    useopt('video_sync', '1')
+    config.set('video_sync', '1')
+    config.set('low_latency_vsync', '1')
 
 # set accuracy
 if args.lowaccuracy == 1:
-    useopt('accuracy', '0')
+    config.set('accuracy', '0')
 elif args.lowaccuracy == 2:
-    useopt('accuracy', '-1')
+    config.set('accuracy', '-1')
 
 #quiet floppy
 if args.quietfloppy:
-    useopt('floppy_drive_volume', '0')
-
-# aspect ratio
-if args.keepaspect:
-    useopt('keep-aspect', '1')
+    config.set('floppy_drive_volume', '0')
 
 # set number of floppy drives
 if args.nrfloppy:
     if args.nrfloppy > 3:
-        useopt('floppy_drive_count', '4')
+        config.set('floppy_drive_count', '4')
     else:
-        useopt('floppy_drive_count', str(args.nrfloppy))
+        config.set('floppy_drive_count', args.nrfloppy)
 
 # try to enable jit
 if args.jit:
-    if fsuae.get('amiga_model', 'A500') == 'A1200':
+    if config.get('amiga_model', 'A500') == 'A1200':
         print('WARNING: setting real 68020 cpu for A1200')
-        useopt('amiga_model', 'A1200/020')
-    if fsuae.get('accuracy', '1') == '1':
+        config.set('amiga_model', 'A1200/020')
+    if config.get('accuracy', '1') == '1':
         print('WARNING: disabling cycle exact emulation for JIT.')
-        useopt('accuracy', '0')
-    useopt('jit_compiler', '1')
-    useopt('jit_memory', 'direct')
+        config.set('accuracy', '0')
+    config.set('jit_compiler', '1')
+    config.set('jit_memory', 'direct')
 
 # pixel shader stuff
 if args.shader:
-    if os.path.isdir(shaderdir):
-        shaderlist = set(os.listdir(shaderdir))
-    else:
-        shaderlist = set()
-    dat = zipfile.ZipFile(datfile)
-    for s in dat.namelist():
-        if len(s) > 21 and s.startswith('share/fs-uae/shaders/'):
-            shaderlist.add(s[21:])
-    dat.close()
-    shaderlist = sorted(list(shaderlist))
     if args.shader is True:
-        for dshader in enumerate(shaderlist):
+        for dshader in enumerate(fspaths.shader_files):
             print('{0} - {1}'.format(dshader[0], dshader[1].rsplit('.shader')[0]))
         shaderno = ''
-        while not shaderno.isdigit() or 0 < int(shaderno) > len(shaderlist):
+        while not shaderno.isdigit() or 0 < int(shaderno) > len(fspaths.shader_files):
             shaderno = input('Please select a shader: >> ')
-        shaderfile = shaderlist[int(shaderno)].rsplit('.shader')[0]
-    elif args.shader + '.shader' in shaderlist:
+        shaderfile = fspaths.shader_files[int(shaderno)].rsplit('.shader')[0]
+    elif args.shader + '.shader' in fspaths.shader_files:
         shaderfile = args.shader.rsplit('.shader')[0]
     elif os.path.isfile(args.shader):
         shaderfile = args.shader
     else:
         nicequit('shader not found: ' + args.shader, 1)
-    useopt('shader', shaderfile)
+    config.set('shader', shaderfile)
 
 # assign disk images to floppy_drive_x and ...
-[useopt('floppy_drive_{0}'.format(floppydriveno), floppyarg.name) for floppydriveno, floppyarg in zip(
-    range(4), (args.df0, args.df1, args.df2, args.df3)) if floppyarg is not None]
-# ...also put them in a floppy list
-[floppylist.append(floppyarg.name) for floppyarg in (
-    args.df0, args.df1, args.df2, args.df3) if floppyarg is not None]
+[config.set('floppy_drive_{0}'.format(floppydriveno), floppyarg.path) for floppydriveno, floppyarg in enumerate(
+    (args.df0, args.df1, args.df2, args.df3)) if floppyarg is not None]
 
 # hdd config
-[useopt('hard_drive_{0}'.format(harddriveno), handlehdd(hddarg)) for harddriveno, hddarg in zip(
-    range(4), (args.hd0, args.hd1, args.hd2, args.hd3)) if hddarg is not None]
+[config.set('hard_drive_{0}'.format(harddriveno), hddarg.path) for harddriveno, hddarg in enumerate(
+    (args.hd0, args.hd1, args.hd2, args.hd3)) if hddarg is not None]
 
 # cd-rom config
 if args.cdr:
-    useopt('cdrom_drive_0', args.cdr.name)
-    useopt('cdrom_image_0', args.cdr.name)
+    config.set('cdrom_drive_0', args.cdr.name)
+    config.set('cdrom_image_0', args.cdr.name)
     
 if args.cpuidle:
-    useopt('cpu_idle', str(args.cpuidle))
+    config.set('cpu_idle', str(args.cpuidle))
 
 # cpu speed config
 if args.cpuspeed:
     multiplier = None
-    if fsuae.get('accuracy', '1') == '1':
-        configured_model = fsuae.get('amiga_model', 'A500')
+    if config.get('accuracy', '1') == '1':
+        configured_model = config.get('amiga_model', 'A500')
         if configured_model.upper() in ('A500', 'A600', 'A1000', 'CDTV', 'A500/512K', 'A500+'):
             multiplier = 2
         elif configured_model.upper() in ('A1200', 'A1200/020', 'A1200/3.0', 'CD32', 'CD32/FMV'):
             multiplier = 4
     if multiplier:
-        useopt('uae_cpu_multiplier', str(round(multiplier * args.cpuspeed / 100)))
+        config.set('uae_cpu_multiplier', round(multiplier * args.cpuspeed / 100))
     else:
-        useopt('uae_cpu_throttle', str((args.cpuspeed - 100) * 10.0))
+        config.set('uae_cpu_throttle', (args.cpuspeed - 100) * 10.0)
 
-# exract floppy images from a given .zip to a temp dir and use it
+# prefer zipped images for floppy drives
 if args.zip:
-    tmpdir = tempfile.TemporaryDirectory(prefix='ZIP')
-    zipfilelist = []
-    for cmdzip in args.zip:
-        try:
-            z = zipfile.ZipFile(cmdzip.name)
-        except zipfile.BadZipFile:
-            nicequit(cmdzip.name + ' is not a valid ZIP file.', 2)
-        count = 0
-        for f in sorted_nicely(z.namelist()):
-            fname = os.path.join(tmpdir.name, f.split("/")[-1])
-            if count > 19:
-                print('WARNING: Too many floppy images in zip file. You can only use up to 20.')
-                break
-            elif f.lower().endswith(fexts) and z.getinfo(f).file_size <= 2000000:
-                data = z.read(f)
-                floppylist.append(fname)
-                zipfilelist.append(fname)
-                with open(fname, "wb") as mfile:
-                    mfile.write(data)
-                count += 1
-                print('using image: ' + fname)
-            else:
-                print('skipping: ' + fname)
-    assignfromfloppylist(zipfilelist)
+    config.assign_from_floppylist(FloppyDrive.ZIPFILELIST)
 
 # put floppies from command line in the floppy list, if any...
 if args.floppy:
     for floppies in args.floppy:
-        floppylist.append(floppies.name)
+        FloppyDrive.FLOPPYLIST.append(floppies.name)
 
 # if no -1 ... -7 is set, sort stuff automagicly
 if args.somedisk:
     somefloppylist = []
     somehddlist = []
     for disk in args.somedisk:
-        if disk.lower().endswith(fexts) and os.path.isfile(disk):
+        if disk.lower().endswith(FloppyDrive.EXTENSIONS) and os.path.isfile(disk):
             somefloppylist.append(disk)
-            floppylist.append(disk)
-        elif (disk.lower().endswith(hexts) and os.path.isfile(disk)) or os.path.isdir(disk):
-                somehddlist.append(handlehdd(disk))
+            FloppyDrive.FLOPPYLIST.append(disk)
+        elif (disk.lower().endswith(HardDrive.EXTENSIONS) and os.path.isfile(disk)) or os.path.isdir(disk):
+            somehddlist.append(HardDrive(disk))
         else:
             nicequit(disk + ' can\'t be used for any drive.', 1)
-    assignfromfloppylist(somefloppylist)
-    [useopt('hard_drive_{0}'.format(
+    config.assign_from_floppylist(somefloppylist)
+    [config.set('hard_drive_{0}'.format(
         harddriveno), harddrive) for harddriveno, harddrive in zip(range(4), somehddlist)]
-    if args.somedisk[0].lower().endswith(hexts) or os.path.isdir(args.somedisk[0]):
-        useopt('hard_drive_0_priority', '6')
+    if args.somedisk[0].lower().endswith(HardDrive.EXTENSIONS) or os.path.isdir(args.somedisk[0]):
+        config.set('hard_drive_0_priority', '6')
 
 # guess the corresponding disk(s) (-d)
 if args.auto:
-    autofloppy = fsuae.get('floppy_drive_0')
-    if not autofloppy:
+    df0 = config.get('floppy_drive_0')
+    if not df0:
         nicequit('Need a floppy for DF0 for guessing the corresponding disk.', 1)
-    floppylist = []
-    del fsuae['floppy_drive_0']
-    autofloppy_dir, autofloppy_name = os.path.split(autofloppy)
-    autofloppy_dir_list = os.listdir(os.path.realpath(autofloppy_dir))
-    guessed_floppies = get_close_matches(autofloppy_name, autofloppy_dir_list, n=11, cutoff=0.8)
-    autofloppylist = sorted_nicely(guessed_floppies)
-    [floppylist.append(os.path.join(autofloppy_dir, i)) for i in autofloppylist if i.endswith(autofloppy[-3:])]
-    assignfromfloppylist(floppylist)
+    config.config.remove_option('fs-uae', 'floppy_drive_0')
+    if isinstance(args.df0, FloppyDrive):
+        args.df0 = None
+    FloppyDrive.guess_corresponding_images(df0)
+    config.assign_from_floppylist(FloppyDrive.FLOPPYLIST)
 
 # generate floppy_image_x arguments
-[useopt('floppy_image_{0}'.format(
-    floppyimageno), floppyimagefile) for floppyimageno, floppyimagefile in zip(range(20), floppylist)]
-if len(floppylist) > 20:
+[config.set('floppy_image_{0}'.format(
+    floppyimageno), floppyimagefile) for floppyimageno, floppyimagefile in zip(range(20), FloppyDrive.FLOPPYLIST)]
+if len(FloppyDrive.FLOPPYLIST) > 20:
         print('WARNING: Too many floppy images. You can only use up to 20.')
 
-# generate save state dir
-df0 = fsuae.get('floppy_drive_0')
+# generate save state dir based on df0
+df0 = config.get('floppy_drive_0')
 if df0:
-    state_dir = os.path.basename(df0)[:-4]
-    useopt('state_dir_name', state_dir)
+    state_dir = os.path.splitext(os.path.basename(df0))[0]
+    config.set('state_dir_name', state_dir)
 else:
     state_dir = None
+
+# whdload
+if args.whd:
+    if config.get('hard_drive_0') is None:
+        raise GuruMeditationError('Need a valid Whdload installation on HD0:')
+    whd_hd = WhdloadHardDrive(args.whd)
+    config.set('hard_drive_1', whd_hd.path)
+    config.set('hard_drive_1_priority', '6')
 
 # load state
 if args.load:
     if not state_dir:
         nicequit('Can\'t load state without valid save state directory.', 1)
-    stateno = str(args.load)
-    statefile = os.path.join(savestatesdir, state_dir, 'Saved State ' + stateno + '.uss')
+    statefile = os.path.join(fspaths.savestates_dir, state_dir, 'Saved State {0}.uss'.format(args.load))
     if not os.path.isfile(statefile):
         nicequit('Save state not found: ' + statefile, 1)
-    useopt('load_state', stateno)
+    config.set('load_state', args.load)
 
 # set custom fs-uae options
 if args.opts:
     for option in args.opts:
         if option.count('=') == 1:
-            useopt(option.split('=')[0], option.split('=')[1])
+            config.set(option.split('=')[0], option.split('=')[1])
         else:
             nicequit('Bad option: ' + option, 1)
 
@@ -576,17 +815,17 @@ if args.opts:
 if args.uaeopts:
     for option in args.uaeopts:
         if option.count('=') == 1:
-            useopt('uae_' + option.split('=')[0], option.split('=')[1])
+            config.set('uae_' + option.split('=')[0], option.split('=')[1])
         else:
             nicequit('Bad option: ' + option, 1)
 
 # configure filesystem handlers
 for hdd_no in range(10):
-    if fsuae.get('hard_drive_{0}_type'.format(hdd_no)) == 'rdb':
+    if config.get('hard_drive_{0}_type'.format(hdd_no)) == 'rdb':
         continue
-    if fsuae.get('hard_drive_{0}_file_system'.format(hdd_no)) is not None:
+    if config.get('hard_drive_{0}_file_system'.format(hdd_no)) is not None:
         continue
-    hdf = fsuae.get('hard_drive_{0}'.format(hdd_no))
+    hdf = config.get('hard_drive_{0}'.format(hdd_no))
     if hdf is None or not os.path.isfile(hdf):
         continue
     with open(hdf, 'rb') as f:
@@ -601,40 +840,32 @@ for hdd_no in range(10):
         else:
             fs = fs[:3]
     if fs == b'PFS' or fs == b'PDS':
-        # http://aminet.net/disk/misc/pfs3aio.lha#pfs3_aio-handler
-        useopt('hard_drive_{0}_file_system'.format(hdd_no), 'pfs3_aio-handler')
+        # http://aminet.net/disk/misc/pfs3aio.lha#pfs3aio
+        config.set('hard_drive_{0}_file_system'.format(hdd_no), 'pfs3aio')
     elif fs == b'SFS':
         # http://aminet.net/disk/misc/SFS.lha#Smartfilesystem/AmigaOS3.x/L/SmartFilesystem
-        useopt('hard_drive_{0}_file_system'.format(hdd_no), 'SmartFilesystem')
+        config.set('hard_drive_{0}_file_system'.format(hdd_no), 'SmartFilesystem')
 
 # write temp- or real-config if -W
-if args.writeconf:
-    wconf = os.path.join(confdir, args.writeconf + '.fs-uae')
-    with open(wconf, 'wt') as fsuaeconf:
-        config.write(fsuaeconf)
-else:
-    fsuaeconf = tempfile.NamedTemporaryFile(mode='w', suffix='.fs-uae', prefix='CONF')
-    config.write(fsuaeconf)
-    fsuaeconf.flush()
+config.write(args.writeconf)
 
 # give user the chance to do last minute changes
 if args.modifyconf:
-    editor = geteditor()
-    subprocess.call([editor, fsuaeconf.name])
+    config.edit()
 
 # print config
-print('\nConfiguration:')
-[ print('{0} = {1}'.format(key, fsuae[key])) for key in sorted(fsuae.keys()) ]
+config.print()
 
 # Finally: fs-uae exec if not -X
 if not args.noexec:
     print('\n\nStarting FS-UAE...')
     if args.libretro:
-        fsuae_exec = ['retroarch', '-L' , os.path.join(basedir, 'fsuae_libretro.so'), fsuaeconf.name]
+        fsuae_exec = ['retroarch', '-L', os.path.join(fspaths.BASE_DIR, 'fsuae_libretro.so'), config.config_file_name]
     else:
-        fsuae_exec = [os.getenv('FSUAE', 'fs-uae'), fsuaeconf.name]
+        fsuae_exec = [fspaths.executable, config.config_file_name] + config.BUGFIX_OPTIONS
     if args.stdoutlog:
         fsuae_exec += ['--stdout', '--log_flush=1']
+    print('exec:', fsuae_exec)
     returncode = subprocess.call(fsuae_exec)
 else:
     returncode = 0
