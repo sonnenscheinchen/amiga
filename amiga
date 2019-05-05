@@ -903,8 +903,8 @@ for hdd_no in range(10):
         else:
             fs = fs[:3]
     if fs == b'PFS' or fs == b'PDS':
-        # http://aminet.net/disk/misc/pfs3aio.lha#pfs3_aio-handler
-        config.set('hard_drive_{0}_file_system'.format(hdd_no), 'pfs3_aio-handler')
+        # http://aminet.net/disk/misc/pfs3aio.lha#pfs3aio
+        config.set('hard_drive_{0}_file_system'.format(hdd_no), 'pfs3aio')
     elif fs == b'SFS':
         # http://aminet.net/disk/misc/SFS.lha#Smartfilesystem/AmigaOS3.x/L/SmartFilesystem
         config.set('hard_drive_{0}_file_system'.format(hdd_no), 'SmartFilesystem')
