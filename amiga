@@ -630,14 +630,14 @@ if args.scale:
 # setup more memory
 if args.xmem:
     amodel = config.get('amiga_model', 'A500')
-    if amodel == 'A500':
+    if amodel.startswith('A500'):
         config.set('chip_memory', '1024')
-        config.set('fast_memory', '1024')
-    elif amodel == 'A600':
+        config.set('fast_memory', '2048')
+    elif amodel.startswith('A600'):
         config.set('fast_memory', '4096')
-    elif amodel == 'A1200':
+    elif amodel.startswith('A1200'):
         config.set('fast_memory', '8192')
-    elif amodel == 'A4000/040':
+    elif amodel.startswith('A4000'):
         config.set('zorro_iii_memory', '131072')
     else:
         print('WARNING: Extra memory not activated.')
@@ -680,6 +680,7 @@ elif args.lowaccuracy == 2:
 #quiet floppy
 if args.quietfloppy:
     config.set('floppy_drive_volume', '0')
+    config.set('floppy_drive_volume_empty', '0')
 
 # set number of floppy drives
 if args.nrfloppy:
@@ -821,16 +822,18 @@ if args.load:
 # set custom fs-uae options
 if args.opts:
     for option in args.opts:
-        if option.count('=') == 1:
-            config.set(option.split('=')[0], option.split('=')[1])
+        k, _, v = option.partition('=')
+        if v:
+            config.set(k, v)
         else:
             nicequit('Bad option: ' + option, 1)
 
 # set custom uae_ options
 if args.uaeopts:
     for option in args.uaeopts:
-        if option.count('=') == 1:
-            config.set('uae_' + option.split('=')[0], option.split('=')[1])
+        k, _, v = option.partition('=')
+        if v:
+            config.set('uae_' + k, v)
         else:
             nicequit('Bad option: ' + option, 1)
 
