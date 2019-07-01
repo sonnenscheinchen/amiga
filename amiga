@@ -285,7 +285,10 @@ class FloppyDrive(Base):
         if self.path.lower().endswith('.zip'):
             self.extract_zipped_floppy(self.path)
         else:
-            FloppyDrive.FLOPPYLIST.append(self.path)
+            if FloppyDrive.is_valid_floppy(self.path):
+                FloppyDrive.FLOPPYLIST.append(self.path)
+            else:
+                nicequit('{0} is not a valid floppy image.'.format(self.path), 2)
 
     def extract_zipped_floppy(self, path):
         if FloppyDrive.ZIPPED_FLOPPY_DIR is None:
@@ -293,7 +296,7 @@ class FloppyDrive(Base):
         try:
             z = zipfile.ZipFile(path)
         except zipfile.BadZipFile:
-            nicequit(path + ' is not a valid ZIP file.', 2)
+            nicequit('{0} is not a valid ZIP file.'.format(path), 2)
         for f in sorted_nicely(z.namelist()):
             fname = os.path.join(FloppyDrive.ZIPPED_FLOPPY_DIR, f.split("/")[-1])
             if len(FloppyDrive.ZIPFILELIST) > 19:
@@ -317,6 +320,15 @@ class FloppyDrive(Base):
         dir_list = os.listdir(os.path.realpath(directory))
         guessed_floppies = sorted_nicely(get_close_matches(name, dir_list, n=11, cutoff=0.8))
         [FloppyDrive.FLOPPYLIST.append(os.path.join(directory, i)) for i in guessed_floppies if i.endswith(extension)]
+
+    @classmethod
+    def is_valid_floppy(cls, image):
+        if image.lower().endswith(FloppyDrive.EXTENSIONS):
+            return True
+        if os.stat(image).st_size > 839120:
+            return False  # too large to fit on floppy
+        with open(image, 'rb') as f:
+            return f.read(4) == b'\x00\x00\x03\xf3'  # amiga executable
 
     def __del__(self):
         if self.path in self.FLOPPYLIST:
@@ -346,7 +358,7 @@ class HardDrive(Base):
 
     def extract_lha(self, path):
         if not NATIVE_LHA_SUPPORT:
-            return self.extract_with_binary(path, 'lha x', 'LHA')
+            return self.extract_with_binary(path, '7z x', 'LHA')
         try:
             lha = lhafile.LhaFile(path)
         except Exception as e:
@@ -740,15 +752,18 @@ if args.zip:
 
 # put floppies from command line in the floppy list, if any...
 if args.floppy:
-    for floppies in args.floppy:
-        FloppyDrive.FLOPPYLIST.append(floppies.name)
+    for f in args.floppy:
+        if FloppyDrive.is_valid_floppy(f.name):
+            FloppyDrive.FLOPPYLIST.append(f.name)
+        else:
+            nicequit('{0} is not a valid floppy image.'.format(f.name), 2)
 
 # if no -1 ... -7 is set, sort stuff automagicly
 if args.somedisk:
     somefloppylist = []
     somehddlist = []
     for disk in args.somedisk:
-        if disk.lower().endswith(FloppyDrive.EXTENSIONS) and os.path.isfile(disk):
+        if os.path.isfile(disk) and FloppyDrive.is_valid_floppy(disk):
             somefloppylist.append(disk)
             FloppyDrive.FLOPPYLIST.append(disk)
         elif (disk.lower().endswith(HardDrive.EXTENSIONS) and os.path.isfile(disk)) or os.path.isdir(disk):
