@@ -892,4 +892,8 @@ else:
 if returncode == 0:
     nicequit()
 else:
+    if state_dir:
+        state_dir_path = os.path.join(fspaths.savestates_dir, state_dir)
+        if not os.listdir(state_dir_path):
+            os.rmdir(state_dir_path)
     nicequit('\nFs-uae died with exit status: {0}'.format(returncode), returncode)
