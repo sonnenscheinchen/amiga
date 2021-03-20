@@ -399,7 +399,7 @@ class HardDrive(Base):
 
 class WhdloadHardDrive(HardDrive):
 
-    def __init__(self, path):
+    def __init__(self, path, custom_args):
         super().__init__(path)
         if not os.path.isdir(self.path):
             raise GuruMeditationError('Hardfiles are not supported.')
@@ -414,7 +414,10 @@ class WhdloadHardDrive(HardDrive):
         slave = self.find_slave()
         if slave is None:
             raise GuruMeditationError('No whdload slave found in ' + self.path)
-        args = self.get_args_from_icon(slave)
+        if custom_args:
+            args = ' '.join(custom_args)
+        else:
+            args = self.get_args_from_icon(slave)
         self.create_startup_sequence(slave, args)
 
     def find_slave(self):
@@ -426,9 +429,7 @@ class WhdloadHardDrive(HardDrive):
 
     def get_args_from_icon(self, slave):
         name, ext = os.path.splitext(slave)
-        print(name + '.info')
         icon = self.find_icon(name + '.info', slave)
-        print(icon)
         if icon is None:
             return 'PrElOaD'
         with open(icon, 'rb') as f:
@@ -436,7 +437,6 @@ class WhdloadHardDrive(HardDrive):
         index = data.lower().find(b"slave=") - 1
         args = []
         parts = data[index:].split(b"\x00\x00\x00\x00")
-        #print(parts)
         for part in parts[:]:
             if len(part) > 2:
                 length = part[0]
@@ -445,7 +445,6 @@ class WhdloadHardDrive(HardDrive):
                     break
                 if not arg.lower().startswith((b';', b'(', b'slave=')):
                     args.append(arg.decode("ISO-8859-1"))
-        print('args', args)
         return ' '.join(args)
 
     def find_icon(self, icon_name, slave):
@@ -471,8 +470,9 @@ class WhdloadHardDrive(HardDrive):
             f.write('assign s: dh0:s\n')
             f.write('assign devs: dh0:devs\n')
             f.write('assign libs: dh0:libs\n')
-            f.write('setpatch\n')
+            f.write('setpatch > NIL:\n')
             f.write('cd dh1:{0}\n'.format(game_dir))
+            f.write('echo "Starting: whdload {0} {1}"\n'.format(slave_name, args))
             f.write('whdload {0} {1}\n'.format(slave_name, args))
 
 
@@ -536,6 +536,7 @@ parser.add_argument("-o", "--opts", help="set custom fs-uae options (KEY=VALUE)"
 parser.add_argument("-u", "--uaeopts", help="set custom UNSUPPORTED uae_* options (KEY=VALUE)", nargs='+')
 whdloadarg = parser.add_argument_group('WHDLOAD options')
 whdloadarg.add_argument("--whd", help="launch WHDLOAD dir/archive (needs a valid WHDLOAD installation on HD0:)")
+whdloadarg.add_argument("--whdargs", help="custom arguments for WHDLOAD", nargs='+')
 logarg = parser.add_argument_group('Log file options')
 logarg.add_argument("--uaelog", help="Show UAE log file", action="store_true")
 logarg.add_argument("--log", help="Show fs-uae log file", action="store_true")
@@ -806,7 +807,7 @@ else:
 if args.whd:
     if config.get('hard_drive_0') is None:
         raise GuruMeditationError('Need a valid Whdload installation on HD0:')
-    whd_hd = WhdloadHardDrive(args.whd)
+    whd_hd = WhdloadHardDrive(args.whd, args.whdargs)
     config.set('hard_drive_1', whd_hd.path)
     config.set('hard_drive_1_priority', '6')
 
