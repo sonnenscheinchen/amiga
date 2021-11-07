@@ -611,10 +611,6 @@ elif args.turbofloppy == 2:
 elif args.turbofloppy == 3:
     config.set('floppy_drive_speed', '0')
 
-# writebale floppy
-if args.writeable:
-    config.set('writable_floppy_images', '1')
-
 # lowres an line-doubling
 if args.lowres == 1:
     config.set('line_doubling', '0')
@@ -794,6 +790,22 @@ if args.auto:
     floppyimageno), floppyimagefile) for floppyimageno, floppyimagefile in zip(range(20), FloppyDrive.FLOPPYLIST)]
 if len(FloppyDrive.FLOPPYLIST) > 20:
         print('WARNING: Too many floppy images. You can only use up to 20.')
+        del FloppyDrive.FLOPPYLIST[20:]
+
+# writebale floppy
+if args.writeable:
+    for floppy in FloppyDrive.FLOPPYLIST:
+        if floppy.lower().endswith('.adf'):
+            try:
+                fp = open(floppy, 'wb')
+            except PermissionError:
+                nicequit('ERROR: Requested writes to read only file: {0}'.format(floppy), 2)
+            else:
+                fp.close()
+        else:
+            print('WARNING: Unsupported writeable image: {0}'.format(floppy))
+            print('WARNING: Changes will not be saved!')
+    config.set('writable_floppy_images', '1')
 
 # generate save state dir based on df0
 df0 = config.get('floppy_drive_0')
